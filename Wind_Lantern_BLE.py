@@ -13,7 +13,7 @@ import time
 import random
 import _thread
 
-version = "1.0.8"
+version = "1.0.9"
 print("Wind Lantern BLE - Version:", version)
 
 sLock = _thread.allocate_lock()
@@ -27,6 +27,8 @@ green_pin_2 = 9
 blue_pin_2 = 10
 
 wind_factor = 0
+
+terminateThread = False
 
 # org.bluetooth.service.environmental_sensing
 _ENV_SENSE_UUID = bluetooth.UUID(0x181A)
@@ -76,7 +78,7 @@ def rand_flicker_sleep():
 
 def light_candle():
         print("Starting candle thread")
-        while True:
+        while terminateThread == False:
                 red_light()
                 green_light()
                 time.sleep_ms(1)
@@ -152,7 +154,7 @@ async def main():
                 except Exception as e:
                     print("Error in main loop:", e)
                     break  # Break out of the inner loop and attempt to reconnect
-
+                await asyncio.sleep_ms(1000)  # Read every 1 seconds
                 # await light_candle(10)
 
 # Create an Event Loop
@@ -166,4 +168,10 @@ try:
 except Exception as e:
     print('Error occurred: ', e)
 except KeyboardInterrupt:
+    red_pwm.duty(100)
+    red_pwm_2.duty(100)
+    green_pwm.duty(100)
+    green_pwm_2.duty(100)
     print('Program Interrupted by the user')
+    terminateThread = True
+
