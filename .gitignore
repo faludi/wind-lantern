@@ -1,4 +1,4 @@
-/.DS_Store
-/.vscode
-/.micropico
+.DS_Store
+.vscode/
+.micropico
 *.code-workspace
