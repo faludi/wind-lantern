@@ -4,7 +4,6 @@
 # Flicker based on code from Grant Whitney
 # https://grantwinney.com/raspberry-pi-flickering-candle/
 
-from micropython import const
 import uasyncio as asyncio
 import aioble
 import bluetooth
@@ -12,10 +11,12 @@ import struct
 from machine import Pin, PWM
 import time
 import random
-import math
+import _thread
 
-version = "1.0.7"
+version = "1.0.8"
 print("Wind Lantern BLE - Version:", version)
+
+sLock = _thread.allocate_lock()
 
 red_pin = 5
 green_pin = 6
@@ -25,7 +26,6 @@ red_pin_2 = 8
 green_pin_2 = 9
 blue_pin_2 = 10
 
-intensity = 1.0
 wind_factor = 0
 
 # org.bluetooth.service.environmental_sensing
@@ -74,13 +74,12 @@ def green_light():
 def rand_flicker_sleep():
     time.sleep(random.randint(3, 10) / 100.0)
 
-
-async def light_candle(iterations):
-        for i in range(iterations):
-            red_light()
-            green_light()
-            # burning_down()
-            await asyncio.sleep_ms(1)
+def light_candle():
+        print("Starting candle thread")
+        while True:
+                red_light()
+                green_light()
+                time.sleep_ms(1)
 
 # Helper to decode the wind characteristic encoding (sint16, hundredths of a degree).
 def _decode_value(data):
@@ -101,6 +100,8 @@ async def find_wind_sensor():
             if result.name() == peripheral_name and _ENV_SENSE_UUID in result.services():
                 return result.device
     return None
+
+_thread.start_new_thread(light_candle, ())
 
 async def main():
     while True:
@@ -152,7 +153,7 @@ async def main():
                     print("Error in main loop:", e)
                     break  # Break out of the inner loop and attempt to reconnect
 
-                await light_candle(10)
+                # await light_candle(10)
 
 # Create an Event Loop
 loop = asyncio.get_event_loop()
