@@ -11,13 +11,14 @@ import struct
 from machine import ADC, Timer, Pin
 import _thread
 
-version = "1.0.9"
+version = "1.0.11"
 print("Wind Sensor BLE - Version:", version)
 
 default_zero_offset = 2000 # wind sensor calibration offset
-mode = 'anemometer' # 'anemometer' or 'modern_device_rev_C
+mode = 'anemometer' # 'anemometer' or 'modern_device_rev_C'
 
-sLock = _thread.allocate_lock()
+lock = _thread.allocate_lock()
+
 terminateThread = False
 
 #org.bluetooth.service.environmental_sensing
@@ -29,6 +30,7 @@ _ADV_APPEARANCE_WIND = const(1360) #0x0550
 
 # How frequently to send advertising beacons.
 _ADV_INTERVAL_MS = 250_000
+
 
 # Register GATT server.
 wind_service = aioble.Service(_ENV_SENSE_UUID)
@@ -54,9 +56,7 @@ def _write_zero_offset(t):
     open("calibration.txt", "w").write(str(zero_offset))
     print("**Calibration saved:", zero_offset)
 
-# initialize timer for periodic zero_offset storage
-timer = Timer(-1)
-timer.init(period=(60*60*1000), mode=Timer.PERIODIC, callback=_write_zero_offset)
+
 
 def _read_zero_offset():
     try:
@@ -66,49 +66,47 @@ def _read_zero_offset():
     except Exception as e:
         print("Error reading calibration file:", e)
         return default_zero_offset # default value if file read fails
-    
-zero_offset = _read_zero_offset()
+
+if mode == 'modern_device_rev_C':
+    # initialize timer for periodic zero_offset storage
+    timer = Timer(-1)
+    timer.init(period=(60*60*1000), mode=Timer.PERIODIC, callback=_write_zero_offset)
+    zero_offset = _read_zero_offset()
+
 wind_speed_meters_per_second = 0.0
 
 def read_anemometer():
     global wind_speed_meters_per_second
     global terminateThread
-    global zero_offset
+    global lock
     import time
     pulse_count = 0
+    sample_interval_ms = 1000  # Sample every 1 second
     last_time = time.ticks_ms()
-    
-    def pulse_handler(pin):
-        nonlocal pulse_count
-        pulse_count += 1
 
     anemometer_pin = Pin(15, Pin.IN, Pin.PULL_UP)
-    anemometer_pin.irq(trigger=Pin.IRQ_RISING, handler=pulse_handler)
+
+    last_state = anemometer_pin.value()
     
     while not terminateThread:
-        time.sleep(5)  # Measure every 5 seconds
-        current_time = time.ticks_ms()
-        elapsed_time = time.ticks_diff(current_time, last_time) / 1000  # in seconds
-        last_time = current_time
-        
-        # Calculate wind speed in m/s (assuming 1 pulse per rotation and 2.4m circumference)
-        # rotations = pulse_count / 2.0  # assuming 2 pulses per rotation
-        # wind_speed_meters_per_second = (rotations * 2.4) / elapsed_time
-        # wind_speed_meters_per_second = round(wind_speed_meters_per_second, 2)
-        wind_speed_meters_per_second = pulse_count / elapsed_time * 5
-        wind_speed_meters_per_second = round(wind_speed_meters_per_second, 2)
-        
-        print("Anemometer - Pulses:", pulse_count, "Elapsed Time (s):", elapsed_time, "Wind Speed (m/s):", wind_speed_meters_per_second)
-        
-        pulse_count = 0  # Reset count for next interval   
-
-if mode == 'anemometer':
-    _thread.start_new_thread(read_anemometer, ())
-
+        current_state = anemometer_pin.value()
+        if last_state == 1 and current_state == 0:
+            pulse_count += 1
+        last_state = current_state
+        time.sleep(0.01)  # Small delay to avoid busy-waiting
+        if time.ticks_diff(time.ticks_ms(), last_time) > sample_interval_ms:
+            last_time = time.ticks_ms()
+            lock.acquire()   # try to acquire lock - wait if in use
+            # Calculate wind speed in m/s 
+            wind_speed_meters_per_second = pulse_count / (sample_interval_ms/1000) * 2 # double windspeed for effect
+            wind_speed_meters_per_second = round(wind_speed_meters_per_second, 2)
+            lock.release()   # release lock
+            print("Anemometer - Pulses:", pulse_count, "Wind Speed (m/s):", wind_speed_meters_per_second)
+            pulse_count = 0  # Reset count for next interval   
 
 # Get wind and update characteristic
 async def sensor_task():
-    global zero_offset, wind_speed_meters_per_second
+    global zero_offset, wind_speed_meters_per_second, lock
     while True:
         if mode == 'modern_device_rev_C':
             wind = wind_sensor.read_u16()
@@ -122,7 +120,9 @@ async def sensor_task():
             print("Calibrated raw wind:", wind, "Wind speed (m/s):", wind_speed_meters_per_second)
         elif mode == 'anemometer':
             pass
+        lock.acquire() # try to acquire lock - wait if in use
         wind_characteristic.write(_encode_value(wind_speed_meters_per_second), send_update=True)
+        lock.release()   # release lock
         print("Sent:", wind_speed_meters_per_second)
         await asyncio.sleep_ms(1000)
         
@@ -146,6 +146,10 @@ async def peripheral_task():
         finally:
             # Ensure the loop continues to the next iteration
             await asyncio.sleep_ms(100)
+
+# Start anemometer reading thread if in anemometer mode
+if mode == 'anemometer':
+    _thread.start_new_thread(read_anemometer, ())
 
 # Run both tasks
 async def main():
