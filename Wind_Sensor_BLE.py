@@ -10,12 +10,19 @@ import bluetooth
 import struct
 from machine import ADC, Timer, Pin
 import _thread
+import gc
 
-version = "1.0.11"
+version = "1.0.12"
 print("Wind Sensor BLE - Version:", version)
 
 default_zero_offset = 2000 # wind sensor calibration offset
 mode = 'anemometer' # 'anemometer' or 'modern_device_rev_C'
+
+switch_pin = Pin(14, Pin.IN, Pin.PULL_UP)
+if switch_pin.value() == True:
+    mode = 'anemometer'
+else:
+    mode = 'modern_device_rev_C'
 
 lock = _thread.allocate_lock()
 
@@ -56,8 +63,6 @@ def _write_zero_offset(t):
     open("calibration.txt", "w").write(str(zero_offset))
     print("**Calibration saved:", zero_offset)
 
-
-
 def _read_zero_offset():
     try:
         offset = float(open("calibration.txt", "r").read())
@@ -89,6 +94,7 @@ def read_anemometer():
     last_state = anemometer_pin.value()
     
     while not terminateThread:
+        gc.collect()
         current_state = anemometer_pin.value()
         if last_state == 1 and current_state == 0:
             pulse_count += 1
@@ -108,6 +114,7 @@ def read_anemometer():
 async def sensor_task():
     global zero_offset, wind_speed_meters_per_second, lock
     while True:
+        gc.collect()
         if mode == 'modern_device_rev_C':
             wind = wind_sensor.read_u16()
             print("Raw wind:", wind, "Calibration:", zero_offset)
@@ -122,13 +129,14 @@ async def sensor_task():
             pass
         lock.acquire() # try to acquire lock - wait if in use
         wind_characteristic.write(_encode_value(wind_speed_meters_per_second), send_update=True)
-        lock.release()   # release lock
         print("Sent:", wind_speed_meters_per_second)
+        lock.release()   # release lock
         await asyncio.sleep_ms(1000)
         
 # Serially wait for connections. Don't advertise while a central is connected.
 async def peripheral_task():
     while True:
+        gc.collect()
         try:
             async with await aioble.advertise(
                 _ADV_INTERVAL_MS,
@@ -156,5 +164,6 @@ async def main():
     t1 = asyncio.create_task(sensor_task())
     t2 = asyncio.create_task(peripheral_task())
     await asyncio.gather(t1, t2)
+    print("done")
     
 asyncio.run(main())
