@@ -8,12 +8,14 @@ import asyncio
 import aioble
 import bluetooth
 import struct
-from machine import ADC, Timer, Pin
+from machine import ADC, Timer, Pin, WDT
 import _thread
 import gc
 
-version = "1.0.12"
+version = "1.0.14"
 print("Wind Sensor BLE - Version:", version)
+
+wdt = WDT(timeout=8388)  # enable watchdog timer - max timeout
 
 default_zero_offset = 2000 # wind sensor calibration offset
 mode = 'anemometer' # 'anemometer' or 'modern_device_rev_C'
@@ -115,6 +117,7 @@ async def sensor_task():
     global zero_offset, wind_speed_meters_per_second, lock
     while True:
         gc.collect()
+        wdt.feed()
         if mode == 'modern_device_rev_C':
             wind = wind_sensor.read_u16()
             print("Raw wind:", wind, "Calibration:", zero_offset)
@@ -137,6 +140,7 @@ async def sensor_task():
 async def peripheral_task():
     while True:
         gc.collect()
+        wdt.feed()
         try:
             async with await aioble.advertise(
                 _ADV_INTERVAL_MS,
@@ -164,6 +168,5 @@ async def main():
     t1 = asyncio.create_task(sensor_task())
     t2 = asyncio.create_task(peripheral_task())
     await asyncio.gather(t1, t2)
-    print("done")
     
 asyncio.run(main())
