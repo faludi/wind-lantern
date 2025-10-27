@@ -12,21 +12,21 @@ import _thread
 import network
 import requests
 import secrets
-import settings
+import config
 import gc
 
-version = "1.0.13"
+version = "1.0.14"
 print("Wind Lantern WiFi - Version:", version)
 
 # Wi-Fi credentials
 ssid = secrets.WIFI_SSID  # your SSID name
 password = secrets.WIFI_PASSWORD  # your WiFi password
 
-address = settings.ADDRESS
+address = config.ADDRESS
 
 # if no address is provided, use these default coordinates:
-latitude = settings.LATITUDE
-longitude = settings.LONGITUDE
+latitude = config.LATITUDE
+longitude = config.LONGITUDE
 
 red_pin = 5
 green_pin = 6
@@ -114,6 +114,22 @@ def fetch_weather_data():
         return weather
     except Exception as e:
         print('Error fetching weather data:', e)
+        return None
+    
+def fetch_config():
+    try:
+        # Make GET request
+        response = requests.get(config.SETTINGS_FILE_URL, timeout=10)
+        # Get response code
+        response_code = response.status_code
+        # Get response content
+        response_content = response.content
+        config_raw = response.json()
+        # Print results
+        print('Configuration: ', config_raw)
+        return config_raw
+    except Exception as e:
+        print('Error fetching settings:', e)
         return None
 
 def fetch_location_from_address(address):
@@ -228,6 +244,15 @@ async def main():
             if connection_timeout == 0:
                 print('Could not connect to Wi-Fi, exiting')
                 reset()
+
+    config = fetch_config()
+    if config is not None:
+        address = config.get('address')
+        latitude = config.get('latitude')
+        longitude = config.get('longitude')
+
+    print("Using Latitude:", latitude, "Longitude:", longitude, "Address:", address)
+
     if address:
         latitude, longitude = fetch_location_from_address(address.replace(" ", "+"))
     while True:
