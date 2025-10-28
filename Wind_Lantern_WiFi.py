@@ -124,6 +124,7 @@ def fetch_config():
         response_code = response.status_code
         # Get response content
         response_content = response.content
+        print('Response code: ', response_code)
         config_raw = response.json()
         # Print results
         print('Configuration: ', config_raw)
@@ -248,10 +249,11 @@ async def main():
     config = fetch_config()
     if config is not None:
         address = config.get('address')
-        latitude = config.get('latitude')
-        longitude = config.get('longitude')
+        # latitude = config.get('latitude')
+        # longitude = config.get('longitude')
 
-    print("Using Latitude:", latitude, "Longitude:", longitude, "Address:", address)
+    # print("Using Latitude:", latitude, "Longitude:", longitude, "Address:", address)
+    print("Using Address:", address)
 
     if address:
         latitude, longitude = fetch_location_from_address(address.replace(" ", "+"))
