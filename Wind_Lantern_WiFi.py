@@ -155,6 +155,17 @@ def fetch_location_from_address(address):
     except Exception as e:
         print('Error fetching location data:', e)
         return None, None  
+    
+async def update_location():
+    global address, latitude, longitude
+    config = fetch_config()
+    if config is not None:
+        address = config.get('address')
+        print("Using Address:", address)
+        if address:
+            latitude, longitude = fetch_location_from_address(address.replace(" ", "+"))
+    else:
+        print("Using default coordinates")
 
 class WindManager:
     def __init__(self):
@@ -246,20 +257,11 @@ async def main():
                 print('Could not connect to Wi-Fi, exiting')
                 reset()
 
-    config = fetch_config()
-    if config is not None:
-        address = config.get('address')
-        # latitude = config.get('latitude')
-        # longitude = config.get('longitude')
 
-    # print("Using Latitude:", latitude, "Longitude:", longitude, "Address:", address)
-    print("Using Address:", address)
-
-    if address:
-        latitude, longitude = fetch_location_from_address(address.replace(" ", "+"))
     while True:
         if not connection:
             break # exit if no connection
+        await update_location()
         try:
             # Fetch and display weather data
             weather = fetch_weather_data()

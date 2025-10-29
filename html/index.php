@@ -102,11 +102,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Get posted address
     $address = $_POST['address'] ?? '';
+    $rawAddress = $address; // for debugging if needed
     if (!is_string($address)) {
         $errors[] = 'Invalid address value.';
     } else {
         $address = trim($address);
-
+        $address = preg_replace('/[\r\n\/\"\'\\\\;]+/m', " ", $address); // remove return,newline, slash, quotes, backslash
+        $address = preg_replace('/\s+/', ' ',$address); 
         // Validation: adjust rules as needed
         if ($address === '') {
             $errors[] = 'Address cannot be empty.';
@@ -121,6 +123,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (write_json_file_atomic($jsonFile, $data)) {
             $successMessage = 'Address updated successfully.';
+            //sending email with the php mail()
+            $message = 'The PHP form has been updated with a new address: ' . $address. "\n\nRaw input was:\n" . $rawAddress;
+            mail('rob@faludi.com', 'Wind Lantern Address Update', $message, 'From: rob@faludi.com');
             // Reload to avoid form re-submission when user refreshes
             // But we will redisplay via the same request (do not redirect because user might not want it)
         } else {
