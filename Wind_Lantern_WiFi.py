@@ -15,7 +15,7 @@ import secrets
 import config
 import gc
 
-version = "1.0.14"
+version = "1.0.15"
 print("Wind Lantern WiFi - Version:", version)
 
 # Wi-Fi credentials
@@ -256,8 +256,6 @@ async def main():
             if connection_timeout == 0:
                 print('Could not connect to Wi-Fi, exiting')
                 reset()
-
-
     while True:
         if not connection:
             break # exit if no connection
