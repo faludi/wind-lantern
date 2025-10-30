@@ -139,6 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+
 <title>Wind Lantern - Update Address</title>
 <style>
     :root { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
@@ -200,7 +201,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <li>Omaha, NB<br>
     <li>02134<br>
     <li>Paris, France</ul><br></p></blockquote>
-    <br>
 
 <script>
 function myFunction() {
@@ -212,7 +212,8 @@ function myFunction() {
   }
 }
 </script>
-<button onclick="myFunction()">Debug</button>
+<p><h2><a href="lookups.php">Check Wind</a></h2></p>
+<p align="right"><button onclick="myFunction()">Debug</button></p>
 <div id="myDIV">
     <hr>
     
