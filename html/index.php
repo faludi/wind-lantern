@@ -147,8 +147,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     .container { max-width:760px; margin:0 auto; background:#fff; border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,.06); padding:20px; }
     h1 { margin-top:0; font-size:1.4rem; }
     label { display:block; margin-bottom:.5rem; font-weight:600; }
-    textarea { width:100%; min-height:120px; padding:10px; border-radius:6px; border:1px solid #ddd; font-size:1rem; font-family:inherit; }
-    .btn { display:inline-block; margin-top:10px; padding:8px 14px; border-radius:8px; border:0; cursor:pointer; background:#0066cc; color:#fff; font-weight:600; }
+    textarea { width:97%; min-height:120px; padding:10px; border-radius:6px; border:1px solid #ddd; font-size:1rem; font-family:inherit; }
+    .btn { display:inline-block; margin-top:10px; padding:8px 14px; border-radius:8px; border:0; cursor:pointer; background:#00cc00; color:#fff; font-weight:600; }
+    .btn-wind { display:inline-block; margin-top:10px; padding:8px 14px; border-radius:8px; border:0; cursor:pointer; background:#0066cc; color:#fff; font-weight:600; }
     .muted { color:#666; font-size:.95rem; margin-bottom:10px; }
     .msg { padding:10px; border-radius:8px; margin-bottom:10px; }
     .err { background:#fff1f0; color:#8b1f1f; border:1px solid #f5c2c2; }
@@ -166,6 +167,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   display: none;
 }
 </style>
+<script>
+function myFunction() {
+  var x = document.getElementById("myDIV");
+  if (x.style.display === "block") {
+    x.style.display = "none";
+  } else {
+    x.style.display = "block";
+  }
+}
+</script>
 </head>
 <body>
 <div class="container">
@@ -191,28 +202,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <textarea id="address" name="address" required><?= htmlspecialchars($data['address'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE) ?></textarea>
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token, ENT_QUOTES | ENT_SUBSTITUTE) ?>">
         <div>
-            <button class="btn" type="submit">Update address</button>
+            <button class="btn" type="submit">Update address</button> <button class="btn-wind" type="button" onclick="window.location.href='lookups.php';">Check Wind</button>
         </div>
     </form>
-    <br>
-    <blockquote>
-    <p class="muted"><strong>Examples:</strong><br>
+      
+    <!-- <blockquote> -->
+    <p class="muted"><strong>Address Examples:</strong><br>
     <ul><li>350 5th Ave, New York, NY 10018<br>
     <li>Omaha, NB<br>
     <li>02134<br>
-    <li>Paris, France</ul><br></p></blockquote>
+    <li>Paris, France</ul></p>
+<!-- </blockquote> -->
 
-<script>
-function myFunction() {
-  var x = document.getElementById("myDIV");
-  if (x.style.display === "block") {
-    x.style.display = "none";
-  } else {
-    x.style.display = "block";
-  }
-}
-</script>
-<p><h2><a href="lookups.php">Check Wind</a></h2></p>
 <p align="right"><button onclick="myFunction()">Debug</button></p>
 <div id="myDIV">
     <hr>
@@ -221,7 +222,6 @@ function myFunction() {
     <pre><?= htmlspecialchars(json_encode(read_json_file($jsonFile), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), ENT_QUOTES | ENT_SUBSTITUTE) ?></pre>
 </div>
     <footer>
-        <!-- Make sure the webserver user (eg. www-data, wwwrun, apache) has write permission to <?= htmlspecialchars(basename($jsonFile), ENT_QUOTES | ENT_SUBSTITUTE) ?>. -->
     </footer>
 </div>
 </body>

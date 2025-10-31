@@ -81,6 +81,16 @@ $windGustsMph = round($windGusts * 0.62137119, 2);
             border-radius: 10px;
             box-shadow: 0 3px 10px rgba(0,0,0,0.1);
         }
+        .btn { 
+            display:inline-block; 
+            margin-top:10px; 
+            padding:8px 14px; 
+            border-radius:8px; 
+            border:0; 
+            cursor:pointer; 
+            background:#0066cc;
+            color:#fff;
+            font-weight:600; }
         h1 {
             text-align: center;
         }
@@ -102,7 +112,7 @@ $windGustsMph = round($windGusts * 0.62137119, 2);
     <div class="data"><span class="label">Longitude:</span> <?= htmlspecialchars($longitude) ?></div>
     <div class="data"><span class="label">Wind Speed (10m):</span> <?= htmlspecialchars($windSpeedMph) ?> mph</div>
     <div class="data"><span class="label">Wind Gusts (10m):</span> <?= htmlspecialchars($windGustsMph) ?> mph</div>
-    <p align="center"><a href="index.php">BACK</a></p>
+    <p align="center"><button class="btn" type="button" onclick="window.location.href='index.php';">Back</button></p> 
 </div>
 
 </body>
