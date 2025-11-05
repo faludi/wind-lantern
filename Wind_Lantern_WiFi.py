@@ -191,7 +191,6 @@ async def error_led(milliseconds):
     while time.ticks_ms() - start_time < milliseconds:
         count = 0
         blinks = 0
-        print(errors)
         for error in errors.values():
             if error:
                 blinks = blinks | 1 << count
