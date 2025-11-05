@@ -15,7 +15,7 @@ import secrets
 import config
 import gc
 
-version = "1.0.15"
+version = "1.0.16"
 print("Wind Lantern WiFi - Version:", version)
 
 # Wi-Fi credentials
@@ -35,11 +35,18 @@ blue_pin = 7
 red_pin_2 = 8
 green_pin_2 = 9
 blue_pin_2 = 10
+LED = Pin("LED", Pin.OUT)      # digital output for status LED
 
 GUST_INTERVAL_LOW = 15000  # 15 seconds
 GUST_INTERVAL_HIGH = 180000  # 3 minutes
 GUST_LENGTH_LOW = 3000  # 3 seconds
 GUST_LENGTH_HIGH = 15000  # 15 seconds
+errors = {
+    'wifi_connection': True,
+    'weather_fetch': False,
+    'config_fetch': False,
+    'location_fetch': False
+}
 
 terminateThread = False
 
@@ -81,11 +88,13 @@ def connect_to_wifi():
     # Check if connection is successful
     if wlan.status() != 3:
         print('Failed to establish a network connection')
+        errors['wifi_connection'] = True
         return False
     else:
         print('Connection successful!')
         network_info = wlan.ifconfig()
         print('IP address:', network_info[0])
+        errors['wifi_connection'] = False
         return True
 
 def parse_datetime(timestamp):
@@ -111,9 +120,14 @@ def fetch_weather_data():
         # Print results
         print('Response code: ', response_code)
         # print('Response content:', response_content)
+        if 'current' in weather:
+            errors['weather_fetch'] = False
+        else:
+            errors['weather_fetch'] = True
         return weather
     except Exception as e:
         print('Error fetching weather data:', e)
+        errors['weather_fetch'] = True
         return None
     
 def fetch_config():
@@ -128,9 +142,11 @@ def fetch_config():
         config_raw = response.json()
         # Print results
         print('Configuration: ', config_raw)
+        errors['config_fetch'] = False
         return config_raw
     except Exception as e:
         print('Error fetching settings:', e)
+        errors['config_fetch'] = True
         return None
 
 def fetch_location_from_address(address):
@@ -149,11 +165,13 @@ def fetch_location_from_address(address):
             lat = location_data[0]['lat']
             lon = location_data[0]['lon']
             print(f"Fetched coordinates for address '{address}': Latitude {lat}, Longitude {lon}")
+            errors['location_fetch'] = False
             return float(lat), float(lon)
         else:
             raise ValueError("Location not found")
     except Exception as e:
         print('Error fetching location data:', e)
+        errors['location_fetch'] = True
         return None, None  
     
 async def update_location():
@@ -166,6 +184,27 @@ async def update_location():
             latitude, longitude = fetch_location_from_address(address.replace(" ", "+"))
     else:
         print("Using default coordinates")
+
+async def error_led(milliseconds):
+    global errors
+    start_time = time.ticks_ms()
+    while time.ticks_ms() - start_time < milliseconds:
+        count = 0
+        blinks = 0
+        print(errors)
+        for error in errors.values():
+            if error:
+                blinks = blinks | 1 << count
+            count += 1
+        if blinks != 0:
+            for i in range(blinks):
+                LED.on()
+                await asyncio.sleep(0.3)
+                LED.off()
+                await asyncio.sleep(0.3)
+            LED.off()
+        await asyncio.sleep_ms(1000)
+
 
 class WindManager:
     def __init__(self):
@@ -243,7 +282,6 @@ def light_candle():
         green_light()
         time.sleep_ms(1)
 
-
 wind_manager = WindManager()
 
 async def main():
@@ -278,7 +316,8 @@ async def main():
                 print('No weather data available')
         except Exception as e:
             print('Error fetching weather data:', e)
-        await asyncio.sleep_ms(15*60*1000)  # Read every 15 minutes
+        await error_led(15*60*1000)
+        # await asyncio.sleep_ms(15*60*1000)  # Read every 15 minutes
 
 # Create an Event Loop
 loop = asyncio.get_event_loop()
