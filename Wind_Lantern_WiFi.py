@@ -12,21 +12,20 @@ import _thread
 import network
 import requests
 import secrets
-import config
 import gc
+import json
 
-version = "1.0.16"
+version = "1.0.17"
 print("Wind Lantern WiFi - Version:", version)
 
 # Wi-Fi credentials
 ssid = secrets.WIFI_SSID  # your SSID name
 password = secrets.WIFI_PASSWORD  # your WiFi password
 
-address = config.ADDRESS
-
-# if no address is provided, use these default coordinates:
-latitude = config.LATITUDE
-longitude = config.LONGITUDE
+address = "350 5th Avenue, New York, NY"
+latitude = 40.7484773
+longitude = -73.9881643
+settings_file_url = "http://shinyshape.com/windlantern/wind_lantern_settings.json"
 
 red_pin = 5
 green_pin = 6
@@ -130,15 +129,45 @@ def fetch_weather_data():
         errors['weather_fetch'] = True
         return None
     
-def fetch_config():
+def open_config():
+    try:
+        with open('config.json', 'r') as f:
+            config_str = f.read()
+            config = json.loads(config_str)
+            # print(config)
+            return config
+    except OSError:
+        print("Creating configuration file.")
+        try:
+            with open("config.json", "w") as f:
+                config = {"address": "350 5th Avenue, New York, NY", "latitude": 40.7484773, "longitude": -73.9881643, "setttings_file_url": "http://shinyshape.com/windlantern/wind_lantern_settings.json"}
+                json_string = json.dumps(config)
+                # print(config)
+                f.write(json_string)
+                return config
+        except Exception as e:
+            print("Error storing light levels:", e)
+
+def save_config():
+    try:
+        with open("config.json", "w") as f:
+            config = {"address": address, "latitude": latitude, "longitude": longitude, "settings_file_url": settings_file_url}
+            json_string = json.dumps(config)
+            # print(config)
+            f.write(json_string)
+    except Exception as e:
+        print("Error saving config:", e)
+
+def fetch_address(url):
     try:
         # Make GET request
-        response = requests.get(config.SETTINGS_FILE_URL, timeout=10)
+        response = requests.get(url, timeout=10)
         # Get response code
         response_code = response.status_code
-        # Get response content
-        response_content = response.content
         print('Response code: ', response_code)
+        # Get response content
+        # response_content = response.content
+        # print('Response content:', response_content)
         config_raw = response.json()
         # Print results
         print('Configuration: ', config_raw)
@@ -175,13 +204,14 @@ def fetch_location_from_address(address):
         return None, None  
     
 async def update_location():
-    global address, latitude, longitude
-    config = fetch_config()
-    if config is not None:
-        address = config.get('address')
+    global address, latitude, longitude, set
+    location = fetch_address(settings_file_url)
+    if location is not None:
+        address = location.get('address')
         print("Using Address:", address)
         if address:
             latitude, longitude = fetch_location_from_address(address.replace(" ", "+"))
+            save_config()
     else:
         print("Using default coordinates")
 
@@ -284,9 +314,18 @@ def light_candle():
 wind_manager = WindManager()
 
 async def main():
-    global latitude, longitude
+    global address, latitude, longitude, settings_file_url
     connection = False
     connection_timeout = 10
+    settings = open_config()
+    if settings is not None:
+        address = settings.get('address', address)
+        latitude = settings.get('latitude', latitude)
+        longitude = settings.get('longitude', longitude)
+        settings_file_url = settings.get('settings_file_url', settings_file_url)
+    # print("Initial Address:", address)
+    # print("Initial Coordinates: Latitude", latitude, "Longitude", longitude)
+    # print("Settings File URL:", settings_file_url)
     while not connection:
             connection = connect_to_wifi()
             connection_timeout -= 1
