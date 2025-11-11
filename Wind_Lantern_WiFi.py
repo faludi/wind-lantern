@@ -4,6 +4,7 @@
 # Flicker based on code from Grant Whitney
 # https://grantwinney.com/raspberry-pi-flickering-candle/
 
+
 import uasyncio as asyncio
 from machine import Pin, PWM, reset
 import time
@@ -14,8 +15,9 @@ import requests
 import secrets
 import gc
 import json
+import ntptime
 
-version = "1.0.17"
+version = "1.0.19"
 print("Wind Lantern WiFi - Version:", version)
 
 # Wi-Fi credentials
@@ -150,11 +152,24 @@ def open_config():
 
 def save_config():
     try:
+        with open("config.json", "r") as f:
+            config_str = f.read()
+            config = json.loads(config_str)
+            if (config.get('address') == address and
+                config.get('latitude') == latitude and
+                config.get('longitude') == longitude and
+                config.get('settings_file_url') == settings_file_url):
+                print("Configuration unchanged, not saving.")
+                return
+    except Exception as e:
+        print("Error reading config for comparison:", e)
+    try:
         with open("config.json", "w") as f:
             config = {"address": address, "latitude": latitude, "longitude": longitude, "settings_file_url": settings_file_url}
             json_string = json.dumps(config)
             # print(config)
             f.write(json_string)
+            print("Configuration saved.")
     except Exception as e:
         print("Error saving config:", e)
 
@@ -165,7 +180,6 @@ def fetch_address(url):
         # Get response code
         response_code = response.status_code
         print('Response code: ', response_code)
-        # Get response content
         # response_content = response.content
         # print('Response content:', response_content)
         config_raw = response.json()
@@ -323,9 +337,6 @@ async def main():
         latitude = settings.get('latitude', latitude)
         longitude = settings.get('longitude', longitude)
         settings_file_url = settings.get('settings_file_url', settings_file_url)
-    # print("Initial Address:", address)
-    # print("Initial Coordinates: Latitude", latitude, "Longitude", longitude)
-    # print("Settings File URL:", settings_file_url)
     while not connection:
             connection = connect_to_wifi()
             connection_timeout -= 1
@@ -336,6 +347,8 @@ async def main():
         if not connection:
             break # exit if no connection
         await update_location()
+        ntptime.settime()
+        print(f"DateTime: {time.gmtime()[0]}-{time.gmtime()[1]:02}-{time.gmtime()[2]:02} {time.gmtime()[3]:02}:{time.gmtime()[4]:02}:{time.gmtime()[5]:02} UTC  ")
         try:
             # Fetch and display weather data
             weather = fetch_weather_data()
