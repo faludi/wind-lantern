@@ -17,7 +17,7 @@ import gc
 import json
 import ntptime
 
-version = "1.0.19"
+version = "1.0.20"
 print("Wind Lantern WiFi - Version:", version)
 
 # Wi-Fi credentials
@@ -230,6 +230,8 @@ async def update_location():
         print("Using default coordinates")
 
 async def error_led(milliseconds):
+    # bit one is wifi, bit two is weather fetch, bit three is config fetch, bit four is location fetch
+    # for example if config fetch and location fetch failed, blinks = 0b1100 = 12
     global errors
     start_time = time.ticks_ms()
     while time.ticks_ms() - start_time < milliseconds:
@@ -267,9 +269,9 @@ class WindManager:
 
     def _calc_wind_factor(self, wind_speed, wind_gusts):
         self.wind_factor = max((wind_speed), 0) # protect against negative wind factor
-        self.wind_factor = (self.wind_factor * 1.5)   # increase wind factor effect
+        self.wind_factor = (self.wind_factor * 1.3)   # increase wind factor effect
         self.gust_factor = max((wind_gusts), 0) # protect against negative wind factor
-        self.gust_factor = (self.gust_factor * 1.5)   # increase wind factor effect
+        self.gust_factor = (self.gust_factor * 1.3)   # increase wind factor effect
 
     def _calc_gusting(self):
         if time.ticks_ms() - self.start_time > self.delay:
