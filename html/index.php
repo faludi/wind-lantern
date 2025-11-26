@@ -1,81 +1,49 @@
 <?php
 declare(strict_types=1);
-// index.php - PHP 8.2
 session_start();
 
-// CONFIG: change filename if your JSON file is named differently
+// CONFIG: JSON settings file
 $jsonFile = __DIR__ . '/wind_lantern_settings.json';
 
-// Helper: read JSON, return associative array or empty array on failure
+// Helper: read
 function read_json_file(string $path): array {
-    if (!file_exists($path)) {
-        return [];
-    }
+    if (!file_exists($path)) return [];
     $content = @file_get_contents($path);
-    if ($content === false) {
-        return [];
-    }
-    $data = json_decode($content, true);
-    return is_array($data) ? $data : [];
+    if ($content === false) return [];
+    $decoded = json_decode($content, true);
+    return is_array($decoded) ? $decoded : [];
 }
 
-// Helper: write JSON atomically with lock (create temp + rename)
+// Helper: write atomic
 function write_json_file_atomic(string $path, array $data): bool {
     $dir = dirname($path);
     $tmp = tempnam($dir, 'tmp_json_');
-    if ($tmp === false) {
-        return false;
-    }
+    if ($tmp === false) return false;
 
     $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-    if ($json === false) {
-        // encoding failed
-        @unlink($tmp);
-        return false;
-    }
+    if ($json === false) { @unlink($tmp); return false; }
 
-    // write + flush + lock
     $fp = @fopen($tmp, 'c');
-    chmod($tmp, 0644);
-    if ($fp === false) {
-        @unlink($tmp);
-        return false;
-    }
+    @chmod($tmp, 0644);
+    if ($fp === false) { @unlink($tmp); return false; }
 
-    // Acquire exclusive lock on the temp file while writing
-    if (!flock($fp, LOCK_EX)) {
-        fclose($fp);
-        @unlink($tmp);
-        return false;
-    }
+    if (!flock($fp, LOCK_EX)) { fclose($fp); @unlink($tmp); return false; }
 
     ftruncate($fp, 0);
-    rewind($fp);
-    $written = fwrite($fp, $json);
+    fwrite($fp, $json);
     fflush($fp);
-    // Release lock and close
     flock($fp, LOCK_UN);
     fclose($fp);
 
-    if ($written === false) {
-        @unlink($tmp);
-        return false;
-    }
-
-    // Rename temp to target (atomic on most OS/filesystems)
     if (!@rename($tmp, $path)) {
-        // fallback: try copy + unlink
-        if (!@copy($tmp, $path)) {
-            @unlink($tmp);
-            return false;
-        }
+        if (!@copy($tmp, $path)) { @unlink($tmp); return false; }
         @unlink($tmp);
     }
 
     return true;
 }
 
-// CSRF token generation
+// CSRF token
 if (!isset($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(24));
 }
@@ -84,145 +52,265 @@ $csrf_token = $_SESSION['csrf_token'];
 $errors = [];
 $successMessage = null;
 
-// Load existing data
+// Load JSON
 $data = read_json_file($jsonFile);
+if (!isset($data['address'])) $data['address'] = '';
 
-// If address key missing, ensure it's present (empty string)
-if (!array_key_exists('address', $data)) {
-    $data['address'] = '';
-}
-
-// Handle POST update
+// Handle POST (address update)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Basic CSRF check
     $postedToken = $_POST['csrf_token'] ?? '';
-    if (!is_string($postedToken) || !hash_equals($csrf_token, $postedToken)) {
-        $errors[] = 'Invalid CSRF token. Please reload the page and try again.';
+    if (!hash_equals($csrf_token, $postedToken)) {
+        $errors[] = 'Invalid CSRF token.';
     }
 
-    // Get posted address
-    $address = $_POST['address'] ?? '';
-    $rawAddress = $address; // for debugging if needed
-    if (!is_string($address)) {
-        $errors[] = 'Invalid address value.';
+    $rawAddress = $_POST['address'] ?? '';
+    if (!is_string($rawAddress)) {
+        $errors[] = 'Invalid address.';
     } else {
-        $address = trim($address);
-        $address = preg_replace('/[\r\n\/\"\'\\\\;]+/m', " ", $address); // remove return,newline, slash, quotes, backslash
-        $address = preg_replace('/\s+/', ' ',$address); 
-        // Validation: adjust rules as needed
+        $address = trim($rawAddress);
+        $address = preg_replace('/[\r\n\/"\'\\\\;]+/m', ' ', $address);
+        $address = preg_replace('/\s+/', ' ', $address);
+
         if ($address === '') {
             $errors[] = 'Address cannot be empty.';
-        } elseif (mb_strlen($address) > 1024) {
-            $errors[] = 'Address is too long (max 1024 characters).';
+        } elseif (strlen($address) > 1024) {
+            $errors[] = 'Address too long.';
         }
     }
 
-    if (empty($errors)) {
-        // Sanitize: here we store raw text; if you plan to display in HTML, escape when printing.
+    if (!$errors) {
         $data['address'] = $address;
-
         if (write_json_file_atomic($jsonFile, $data)) {
             $successMessage = 'Address updated successfully.';
-            //sending email with the php mail()
-            $message = 'The PHP form has been updated with a new address: ' . $address. "\n\nRaw input was:\n" . $rawAddress;
-            mail('rob@faludi.com', 'Wind Lantern Address Update', $message, 'From: rob@faludi.com');
-            // Reload to avoid form re-submission when user refreshes
-            // But we will redisplay via the same request (do not redirect because user might not want it)
+
+            @mail(
+                'rob@faludi.com',
+                'Wind Lantern Address Update',
+                "New address: $address\n\nRaw:\n$rawAddress",
+                'From: rob@faludi.com'
+            );
         } else {
-            $errors[] = 'Failed to write to the JSON file. Check file permissions.';
+            $errors[] = 'Could not write JSON (permissions issue?).';
+        }
+    }
+}
+
+// -----------------------------------------------------------
+// ALWAYS SHOW CURRENT WIND CONDITIONS
+// -----------------------------------------------------------
+$windError = null;
+$windResult = null;
+$addr = trim($data['address']);
+
+if ($addr === '') {
+    $windError = 'Please enter and save an address first.';
+} else {
+    $encodedAddress = urlencode($addr);
+
+    // 1) Nominatim lookup
+    $nominatimUrl = "https://nominatim.openstreetmap.org/search?q={$encodedAddress}&format=json&limit=1";
+    $context = stream_context_create([
+        'http' => ['header' => "User-Agent: WindLantern/1.0\r\n"]
+    ]);
+    $nomResponse = @file_get_contents($nominatimUrl, false, $context);
+
+    if ($nomResponse === false) {
+        $windError = 'Failed to fetch coordinates.';
+    } else {
+        $nom = json_decode($nomResponse, true);
+        if (!$nom || !isset($nom[0]['lat'], $nom[0]['lon'])) {
+            $windError = 'No results found for the address.';
+        } else {
+            $lat = $nom[0]['lat'];
+            $lon = $nom[0]['lon'];
+
+            // 2) Open-Meteo weather lookup
+            $weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude={$lat}&longitude={$lon}&current=wind_speed_10m,wind_gusts_10m";
+            $weatherResponse = @file_get_contents($weatherUrl);
+
+            if ($weatherResponse === false) {
+                $windError = 'Failed to fetch weather.';
+            } else {
+                $weather = json_decode($weatherResponse, true);
+                $current = $weather['current'] ?? [];
+
+                if (!isset($current['wind_speed_10m'], $current['wind_gusts_10m'])) {
+                    $windError = 'Weather data incomplete.';
+                } else {
+                    $ws = $current['wind_speed_10m'];
+                    $wg = $current['wind_gusts_10m'];
+
+                    $latFloat = (float)$lat;
+                    $lonFloat = (float)$lon;
+
+                    // ----- ZOOMED-IN MAP USING BBOX -----
+                    // Smaller delta = more zoomed-in
+                    $delta = 0.005; // ~400m-ish around the point
+                    $minLon = $lonFloat - $delta;
+                    $minLat = $latFloat - $delta;
+                    $maxLon = $lonFloat + $delta;
+                    $maxLat = $latFloat + $delta;
+
+                    $bbox = $minLon . '%2C' . $minLat . '%2C' . $maxLon . '%2C' . $maxLat;
+                    $mapSrc  = "https://www.openstreetmap.org/export/embed.html?bbox={$bbox}&layer=mapnik&marker={$latFloat}%2C{$lonFloat}";
+                    // Larger view link can still use a standard zoom level
+                    $zoom    = 16;
+                    $mapLink = "https://www.openstreetmap.org/?mlat={$latFloat}&mlon={$lonFloat}#map={$zoom}/{$latFloat}/{$lonFloat}";
+
+                    $windResult = [
+                        'address'   => $addr,
+                        'lat'       => $latFloat,
+                        'lon'       => $lonFloat,
+                        'ws_kmh'    => $ws,
+                        'wg_kmh'    => $wg,
+                        'ws_mph'    => round($ws * 0.62137119, 2),
+                        'wg_mph'    => round($wg * 0.62137119, 2),
+                        'map_src'   => $mapSrc,
+                        'map_link'  => $mapLink,
+                    ];
+                }
+            }
         }
     }
 }
 ?>
 <!doctype html>
-<html lang="en">
+<html>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-
-<title>Wind Lantern - Update Address</title>
+<title>Wind Lantern</title>
 <style>
-    :root { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
-    body { padding: 24px; background:#f7f7f9; color:#111; }
-    .container { max-width:760px; margin:0 auto; background:#fff; border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,.06); padding:20px; }
-    h1 { margin-top:0; font-size:1.4rem; }
-    label { display:block; margin-bottom:.5rem; font-weight:600; }
-    textarea { width:97%; min-height:120px; padding:10px; border-radius:6px; border:1px solid #ddd; font-size:1rem; font-family:inherit; }
-    .btn { display:inline-block; margin-top:10px; padding:8px 14px; border-radius:8px; border:0; cursor:pointer; background:#00cc00; color:#fff; font-weight:600; }
-    .btn-wind { display:inline-block; margin-top:10px; padding:8px 14px; border-radius:8px; border:0; cursor:pointer; background:#0066cc; color:#fff; font-weight:600; }
-    .muted { color:#666; font-size:.95rem; margin-bottom:10px; }
-    .msg { padding:10px; border-radius:8px; margin-bottom:10px; }
-    .err { background:#fff1f0; color:#8b1f1f; border:1px solid #f5c2c2; }
-    .ok { background:#f0fff6; color:#0b7a3f; border:1px solid #bfe8c6; }
-    pre{ background:#f6f8fa; padding:10px; border-radius:6px; overflow:auto; }
-    footer { margin-top:14px; font-size:.85rem; color:#666; }
-</style>
-<style>
-#myDIV {
-  width: 100%;
-  padding: 50px 0;
-  text-align: left;
-  background-color: white;
-  margin-top: 20px;
-  display: none;
+body {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background:#f7f7f9;
+    padding:24px;
+}
+.container {
+    max-width:760px;
+    margin:0 auto;
+    background:#fff;
+    padding:20px;
+    border-radius:10px;
+    box-shadow:0 6px 18px rgba(0,0,0,.06);
+}
+textarea {
+    width:97%;
+    min-height:120px;
+}
+.btn {
+    color:#fff;
+    border:none;
+    padding:8px 14px;
+    border-radius:20px;
+    cursor:pointer;
+    font-weight:600;
+    margin-right:8px;
+}
+.btn-update {
+    background:#28a745; /* green */
+}
+.btn-refresh {
+    background:#00aaee; /* blue */
+}
+.msg.err {
+    background:#ffe9e9;
+    color:#992222;
+    padding:10px;
+    border-radius:8px;
+}
+.msg.ok {
+    background:#e4ffe9;
+    color:#226622;
+    padding:10px;
+    border-radius:8px;
+}
+.label {
+    display:inline-block;
+    width:150px;
+    font-weight:bold;
+}
+.map-container {
+    margin-top:12px;
+    border:1px solid #ccc;
+    border-radius:6px;
+    overflow:hidden;
+}
+.map-footer {
+    font-size:0.85rem;
+    text-align:right;
+    margin-top:4px;
+}
+.map-footer a {
+    color:#0077cc;
+    text-decoration:none;
+}
+.map-footer a:hover {
+    text-decoration:underline;
 }
 </style>
-<script>
-function myFunction() {
-  var x = document.getElementById("myDIV");
-  if (x.style.display === "block") {
-    x.style.display = "none";
-  } else {
-    x.style.display = "block";
-  }
-}
-</script>
 </head>
 <body>
 <div class="container">
-    <h1>Wind Lantern - Update Address</h1>
 
-    <?php if (!empty($errors)): ?>
-        <div class="msg err">
-            <strong>Errors:</strong>
-            <ul>
-                <?php foreach ($errors as $e): ?>
-                    <li><?= htmlspecialchars($e, ENT_QUOTES | ENT_SUBSTITUTE) ?></li>
-                <?php endforeach; ?>
-            </ul>
-        </div>
-    <?php endif; ?>
+<h1>Wind Lantern – Update Address</h1>
 
-    <?php if ($successMessage): ?>
-        <div class="msg ok"><?= htmlspecialchars($successMessage, ENT_QUOTES | ENT_SUBSTITUTE) ?></div>
-    <?php endif; ?>
-
-    <form method="post" novalidate>
-        <!-- <label for="address">Enter the address to be used for geolocation by the Wind Lantern.</label> -->
-        <textarea id="address" name="address" required><?= htmlspecialchars($data['address'] ?? '', ENT_QUOTES | ENT_SUBSTITUTE) ?></textarea>
-        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token, ENT_QUOTES | ENT_SUBSTITUTE) ?>">
-        <div>
-            <button class="btn" type="submit">Update address</button> <button class="btn-wind" type="button" onclick="window.location.href='lookups.php';">Check Wind</button>
-        </div>
-    </form>
-      
-    <!-- <blockquote> -->
-    <p class="muted"><strong>Address Examples:</strong><br>
-    <ul><li>350 5th Ave, New York, NY 10018<br>
-    <li>Omaha, NB<br>
-    <li>02134<br>
-    <li>Paris, France</ul></p>
-<!-- </blockquote> -->
-
-<p align="right"><button onclick="myFunction()">Debug</button></p>
-<div id="myDIV">
-    <hr>
-    
-    <h4>JSON file preview</h4>
-    <pre><?= htmlspecialchars(json_encode(read_json_file($jsonFile), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), ENT_QUOTES | ENT_SUBSTITUTE) ?></pre>
+<?php if ($errors): ?>
+<div class="msg err">
+    <strong>Errors:</strong>
+    <ul>
+        <?php foreach ($errors as $e): ?>
+            <li><?= htmlspecialchars($e) ?></li>
+        <?php endforeach; ?>
+    </ul>
 </div>
-    <footer>
-    </footer>
+<?php endif; ?>
+
+<?php if ($successMessage): ?>
+<div class="msg ok"><?= htmlspecialchars($successMessage) ?></div>
+<?php endif; ?>
+
+<form method="post">
+    <textarea name="address"><?= htmlspecialchars($data['address']) ?></textarea>
+    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
+    <br><br>
+    <button class="btn btn-update" type="submit">Update Address</button>
+    <br><br><br>
+</form>
+
+<hr>
+<h2>Current Wind Conditions</h2>
+<p><button class="btn btn-refresh" type="button" onclick="window.location.href='index.php'">
+            Refresh Wind
+        </button></p>
+
+<?php if ($windError): ?>
+    <div class="msg err"><?= htmlspecialchars($windError) ?></div>
+<?php elseif ($windResult): ?>
+    <div><span class="label">Address:</span> <?= htmlspecialchars($windResult['address']) ?></div>
+    <div><span class="label">Latitude:</span> <?= htmlspecialchars((string)$windResult['lat']) ?></div>
+    <div><span class="label">Longitude:</span> <?= htmlspecialchars((string)$windResult['lon']) ?></div>
+    <div><span class="label">Wind Speed:</span> <?= $windResult['ws_mph'] ?> mph</div>
+    <div><span class="label">Wind Gusts:</span> <?= $windResult['wg_mph'] ?> mph</div>
+
+
+    <div class="map-container">
+        <iframe
+            width="100%"
+            height="250"
+            frameborder="0"
+            scrolling="no"
+            marginheight="0"
+            marginwidth="0"
+            src="<?= htmlspecialchars($windResult['map_src'], ENT_QUOTES | ENT_SUBSTITUTE) ?>">
+        </iframe>
+    </div>
+    <div class="map-footer">
+        <a href="<?= htmlspecialchars($windResult['map_link'], ENT_QUOTES | ENT_SUBSTITUTE) ?>" target="_blank" rel="noopener">
+            View larger map
+        </a>
+    </div>
+<?php endif; ?>
+
 </div>
 </body>
 </html>
