@@ -17,7 +17,7 @@ import gc
 import json
 import ntptime
 
-version = "1.0.20"
+version = "1.0.21"
 print("Wind Lantern WiFi - Version:", version)
 
 # Wi-Fi credentials
@@ -39,7 +39,7 @@ blue_pin_2 = 10
 LED = Pin("LED", Pin.OUT)      # digital output for status LED
 
 GUST_INTERVAL_LOW = 15000  # 15 seconds
-GUST_INTERVAL_HIGH = 180000  # 3 minutes
+GUST_INTERVAL_HIGH = 40000  # 40 seconds
 GUST_LENGTH_LOW = 3000  # 3 seconds
 GUST_LENGTH_HIGH = 15000  # 15 seconds
 errors = {
@@ -195,7 +195,7 @@ def fetch_address(url):
 def fetch_location_from_address(address):
     try:
         headers = {
-            "User-Agent": "rp2"  # Adding the custom user agent
+            "User-Agent": "rp2"  # Add a custom user agent
         }
         response = requests.get(f"https://nominatim.openstreetmap.org/search?q={address}&format=json&limit=1", headers=headers, timeout=10)
         # print(response.content)
@@ -279,12 +279,13 @@ class WindManager:
             self.gust_ramp = random.randint(GUST_LENGTH_LOW, GUST_LENGTH_HIGH) * 0.25
             if not self.gusting:
                 self.gusting = True
+                self.gust_factor = self.gust_factor * random.uniform(0.8, 1.2) # add some randomness to gust factor
                 self.delay = random.randint(GUST_LENGTH_LOW, GUST_LENGTH_HIGH)
-                print("GUST STARTED for", self.delay / 1000, "secs")
+                print("Gusting for", self.delay / 1000, "secs")
             elif self.gusting:
                 self.gusting = False
                 self.delay = random.randint(GUST_INTERVAL_LOW, GUST_INTERVAL_HIGH)
-                print("GUST ENDED, next in", self.delay / 1000, "secs") 
+                print("Next gust in", self.delay / 1000, "secs") 
         return self.wind_factor
     
     def get_wind_factor(self):
