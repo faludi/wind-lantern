@@ -17,7 +17,7 @@ import gc
 import json
 import ntptime
 
-version = "1.0.21"
+version = "1.0.22"
 print("Wind Lantern WiFi - Version:", version)
 
 # Wi-Fi credentials
@@ -42,6 +42,7 @@ GUST_INTERVAL_LOW = 15000  # 15 seconds
 GUST_INTERVAL_HIGH = 40000  # 40 seconds
 GUST_LENGTH_LOW = 3000  # 3 seconds
 GUST_LENGTH_HIGH = 15000  # 15 seconds
+WIND_FACTOR_MULTIPLIER = 1.4
 errors = {
     'wifi_connection': True,
     'weather_fetch': False,
@@ -269,9 +270,9 @@ class WindManager:
 
     def _calc_wind_factor(self, wind_speed, wind_gusts):
         self.wind_factor = max((wind_speed), 0) # protect against negative wind factor
-        self.wind_factor = (self.wind_factor * 1.3)   # increase wind factor effect
+        self.wind_factor = (self.wind_factor * WIND_FACTOR_MULTIPLIER)   # increase wind factor effect
         self.gust_factor = max((wind_gusts), 0) # protect against negative wind factor
-        self.gust_factor = (self.gust_factor * 1.3)   # increase wind factor effect
+        self.gust_factor = (self.gust_factor * WIND_FACTOR_MULTIPLIER)   # increase wind factor effect
 
     def _calc_gusting(self):
         if time.ticks_ms() - self.start_time > self.delay:
