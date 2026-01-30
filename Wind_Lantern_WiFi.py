@@ -17,7 +17,7 @@ import gc
 import json
 import ntptime
 
-version = "1.0.22"
+version = "1.0.23"
 print("Wind Lantern WiFi - Version:", version)
 
 # Wi-Fi credentials
@@ -347,12 +347,20 @@ async def main():
             if connection_timeout == 0:
                 print('Could not connect to Wi-Fi, exiting')
                 reset()
+    next_sync = time.time()             
     while True:
         if not connection:
             break # exit if no connection
         await update_location()
-        ntptime.settime()
-        print(f"DateTime: {time.gmtime()[0]}-{time.gmtime()[1]:02}-{time.gmtime()[2]:02} {time.gmtime()[3]:02}:{time.gmtime()[4]:02}:{time.gmtime()[5]:02} UTC  ")
+        if (time.time() >= next_sync):
+            try:
+                print('Syncing time via NTP...')
+                ntptime.settime()
+                print(f"DateTime: {time.gmtime()[0]}-{time.gmtime()[1]:02}-{time.gmtime()[2]:02} {time.gmtime()[3]:02}:{time.gmtime()[4]:02}:{time.gmtime()[5]:02} UTC  ")
+                next_sync = time.time() + 43200 # update every 12 hours
+            except Exception as e:
+                next_sync = time.time() + 600 # try again in 10 minutes
+                print("Failed to update NTP or solar data, retrying in 10 minutes.", e)
         try:
             # Fetch and display weather data
             weather = fetch_weather_data()
