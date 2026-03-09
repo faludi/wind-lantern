@@ -17,7 +17,7 @@ import gc
 import json
 import ntptime
 
-version = "1.0.23"
+version = "1.0.24"
 print("Wind Lantern WiFi - Version:", version)
 
 # Wi-Fi credentials
@@ -42,7 +42,7 @@ GUST_INTERVAL_LOW = 15000  # 15 seconds
 GUST_INTERVAL_HIGH = 40000  # 40 seconds
 GUST_LENGTH_LOW = 3000  # 3 seconds
 GUST_LENGTH_HIGH = 15000  # 15 seconds
-WIND_FACTOR_MULTIPLIER = 1.3
+WIND_FACTOR_MULTIPLIER = 1.2
 errors = {
     'wifi_connection': True,
     'weather_fetch': False,
