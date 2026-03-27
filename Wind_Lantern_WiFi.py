@@ -5,6 +5,7 @@
 # https://grantwinney.com/raspberry-pi-flickering-candle/
 
 
+from math import log
 import uasyncio as asyncio
 from machine import Pin, PWM, reset
 import time
@@ -17,7 +18,7 @@ import gc
 import json
 import ntptime
 
-version = "1.0.24"
+version = "1.0.25"
 print("Wind Lantern WiFi - Version:", version)
 
 # Wi-Fi credentials
@@ -43,6 +44,10 @@ GUST_INTERVAL_HIGH = 40000  # 40 seconds
 GUST_LENGTH_LOW = 3000  # 3 seconds
 GUST_LENGTH_HIGH = 15000  # 15 seconds
 WIND_FACTOR_MULTIPLIER = 1.2
+WIND_FACTOR_K = 0.03 # how strongly the wind factor is pulled towards the center value
+# A gentle breeze should have the most effect, and higher winds should have less effect to prevent the lantern from flickering too wildly in strong winds. 
+WIND_FACTOR_CENTER = 6 # increase wind effect below this speed, decrease effect above this speed.
+
 errors = {
     'wifi_connection': True,
     'weather_fetch': False,
@@ -268,11 +273,16 @@ class WindManager:
         self.gusts = wind_gusts
         self._calc_wind_factor(self.speed, self.gusts)
 
+    def adjust(self, x, k=0.02, center=10):
+        return x - k * (x - center) * abs(x - center)
+
     def _calc_wind_factor(self, wind_speed, wind_gusts):
         self.wind_factor = max((wind_speed), 0) # protect against negative wind factor
-        self.wind_factor = (self.wind_factor * WIND_FACTOR_MULTIPLIER)   # increase wind factor effect
+        # self.wind_factor = (self.wind_factor * WIND_FACTOR_MULTIPLIER)   # increase wind factor effect
+        self.wind_factor = self.adjust(self.wind_factor, k=0.02, center=10)
         self.gust_factor = max((wind_gusts), 0) # protect against negative wind factor
-        self.gust_factor = (self.gust_factor * WIND_FACTOR_MULTIPLIER)   # increase wind factor effect
+        # self.gust_factor = (self.gust_factor * WIND_FACTOR_MULTIPLIER)   # increase wind factor effect
+        self.gust_factor = self.adjust(self.gust_factor, k=0.02, center=10)
 
     def _calc_gusting(self):
         if time.ticks_ms() - self.start_time > self.delay:
