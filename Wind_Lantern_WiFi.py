@@ -18,7 +18,7 @@ import gc
 import json
 import ntptime
 
-version = "1.0.25"
+version = "1.0.26"
 print("Wind Lantern WiFi - Version:", version)
 
 # Wi-Fi credentials
