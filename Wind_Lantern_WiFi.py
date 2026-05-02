@@ -7,7 +7,7 @@
 
 from math import log
 import uasyncio as asyncio
-from machine import Pin, PWM, reset
+from machine import Pin, PWM, reset, WDT
 import time
 import random
 import _thread
@@ -91,6 +91,7 @@ def connect_to_wifi():
             break
         connection_timeout -= 1
         print('Waiting for Wi-Fi connection...')
+        wdt.feed()
         time.sleep(1)
     # Check if connection is successful
     if wlan.status() != 3:
@@ -118,7 +119,8 @@ def parse_datetime(timestamp):
 def fetch_weather_data():
     try:
         # Make GET request
-        response = requests.get(f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&current=wind_speed_10m,wind_gusts_10m", timeout=10)
+        wdt.feed()
+        response = requests.get(f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&current=wind_speed_10m,wind_gusts_10m", timeout=8)
         # Get response code
         response_code = response.status_code
         # Get response content
@@ -182,7 +184,8 @@ def save_config():
 def fetch_address(url):
     try:
         # Make GET request
-        response = requests.get(url, timeout=10)
+        wdt.feed()
+        response = requests.get(url, timeout=8)
         # Get response code
         response_code = response.status_code
         print('Response code: ', response_code)
@@ -203,7 +206,8 @@ def fetch_location_from_address(address):
         headers = {
             "User-Agent": "rp2"  # Add a custom user agent
         }
-        response = requests.get(f"https://nominatim.openstreetmap.org/search?q={address}&format=json&limit=1", headers=headers, timeout=10)
+        wdt.feed()
+        response = requests.get(f"https://nominatim.openstreetmap.org/search?q={address}&format=json&limit=1", headers=headers, timeout=8)
         # print(response.content)
         response_code = response.status_code
         response_content = response.content
@@ -249,11 +253,13 @@ async def error_led(milliseconds):
             count += 1
         if blinks != 0:
             for i in range(blinks):
+                wdt.feed()
                 LED.on()
                 await asyncio.sleep(0.3)
                 LED.off()
                 await asyncio.sleep(0.3)
             LED.off()
+        wdt.feed()
         await asyncio.sleep_ms(1000)
 
 
@@ -342,6 +348,7 @@ def light_candle():
 wind_manager = WindManager()
 
 async def main():
+    wdt.feed()
     global address, latitude, longitude, settings_file_url
     connection = False
     connection_timeout = 10
@@ -359,12 +366,14 @@ async def main():
                 reset()
     next_sync = time.time()             
     while True:
+        wdt.feed()
         if not connection:
             break # exit if no connection
         await update_location()
         if (time.time() >= next_sync):
             try:
                 print('Syncing time via NTP...')
+                wdt.feed()
                 ntptime.settime()
                 print(f"DateTime: {time.gmtime()[0]}-{time.gmtime()[1]:02}-{time.gmtime()[2]:02} {time.gmtime()[3]:02}:{time.gmtime()[4]:02}:{time.gmtime()[5]:02} UTC  ")
                 next_sync = time.time() + 43200 # update every 12 hours
@@ -393,6 +402,7 @@ async def main():
         # await asyncio.sleep_ms(15*60*1000)  # Read every 15 minutes
 
 # Create an Event Loop
+wdt = WDT(timeout=8388)  # 8-second watchdog timer
 loop = asyncio.get_event_loop()
 # Create a task to run the main function
 loop.create_task(main())
