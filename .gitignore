@@ -3,3 +3,5 @@
 .micropico
 *.code-workspace
 secrets.py
+__pycache__/
+*.pyc
