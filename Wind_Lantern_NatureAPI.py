@@ -18,7 +18,7 @@ import json
 import ntptime
 from nature_api import Client
 
-version = "1.0.26"
+version = "1.0.27"
 print("Wind Lantern WiFi - Version:", version)
 
 # Wi-Fi credentials
@@ -27,7 +27,7 @@ password = secrets.WIFI_PASSWORD  # your WiFi password
 
 wdt = WDT(timeout=8388)  # 8-second watchdog timer
 
-nature_client = Client(ssid, password, default_refresh=300, status_led_pin=None, debug_mode=False, watchdog=wdt)
+nature_client = Client(ssid, password, debug_mode=False, watchdog=wdt)
 ipgeolocation_key = getattr(secrets, 'IPGEOLOCATION_API_KEY', None)
 if ipgeolocation_key:
     try:

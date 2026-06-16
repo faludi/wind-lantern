@@ -7,14 +7,12 @@ from Url_encode import url_encode
 import machine
 import ntptime
 
-__version__ = "0.1.10"
+__version__ = "0.1.12"
 
 class Client:
-    def __init__(self, ssid, password, default_refresh=300, status_led_pin=None, debug_mode=False, watchdog=None):
+    def __init__(self, ssid, password, debug_mode=False, watchdog=None):
         self.ssid = ssid
         self.password = password
-        self.default_refresh = default_refresh
-        self.status_led_pin = status_led_pin
         self.ipgeolocation_api_key = None
         self.watchdog = watchdog
         self.wifi_connected = False
@@ -26,12 +24,8 @@ class Client:
         # In-memory TTL cache for fetched data: key -> { 'value': ..., 'expires_at': ... }
         self._cache = {}
 
-        if self.status_led_pin is not None:
-            self.led = machine.Pin(self.status_led_pin, machine.Pin.OUT)
-            self.led.off()
-                
-    def connect_wifi(self, attempts_per_cycle=10, max_attempts=10):
-        while max_attempts > 0:
+    def connect_wifi(self, attempts_per_cycle=10, max_cycles=10):
+        while max_cycles > 0:
             wlan = network.WLAN(network.STA_IF)
             wlan.active(True)
             # Connect to network
@@ -48,7 +42,7 @@ class Client:
             # Check if connection is successful
             if wlan.status() != 3:
                 print('Failed to establish a network connection')
-                max_attempts -= 1
+                max_cycles -= 1
             else:
                 print('Connection successful!')
                 network_info = wlan.ifconfig()
@@ -61,7 +55,8 @@ class Client:
         for _ in range(max_retries):
             try:
                 print('Syncing time via NTP...')
-                if self.watchdog: self.watchdog.feed()  # Feed the watchdog if configuredntptime.settime()
+                if self.watchdog: self.watchdog.feed()  # Feed the watchdog if configured
+                ntptime.settime()
                 return True
             except Exception as e:
                 print("Error syncing time:", e)
