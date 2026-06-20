@@ -15,7 +15,6 @@ import requests
 import secrets
 import gc
 import json
-import ntptime
 from nature_api import Client
 
 version = "1.0.27"
@@ -361,7 +360,7 @@ async def main():
             try:
                 print('Syncing time via NTP...')
                 wdt.feed()
-                ntptime.settime()
+                nature_client.sync_time()
                 print(f"DateTime: {time.gmtime()[0]}-{time.gmtime()[1]:02}-{time.gmtime()[2]:02} {time.gmtime()[3]:02}:{time.gmtime()[4]:02}:{time.gmtime()[5]:02} UTC  ")
                 next_sync = time.time() + 43200 # update every 12 hours
             except Exception as e:
