@@ -18,7 +18,7 @@ import json
 from nature_api import Client
 
 version = "1.0.27"
-print("Wind Lantern WiFi - Version:", version)
+print("Wind Lantern NatureAPI - Version:", version)
 
 # Wi-Fi credentials
 ssid = secrets.WIFI_SSID  # your SSID name
