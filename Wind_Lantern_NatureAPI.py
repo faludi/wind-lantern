@@ -17,7 +17,7 @@ import gc
 import json
 from nature_api import Client
 
-version = "1.0.27"
+version = "1.0.28"
 print("Wind Lantern NatureAPI - Version:", version)
 
 # Wi-Fi credentials
@@ -109,7 +109,7 @@ def parse_datetime(timestamp):
 def fetch_weather_data():
     try:
         wdt.feed()
-        forecast = nature_client.get_forecast("current", "wind_speed_10m,wind_gusts_10m", forecast_days=1, expiry=300)
+        forecast = nature_client.get_weather("current", "wind_speed_10m,wind_gusts_10m", forecast_days=1, expiry=300)
         if not forecast or forecast.get('wind_speed_10m') is None:
             errors['weather_fetch'] = True
             return None
