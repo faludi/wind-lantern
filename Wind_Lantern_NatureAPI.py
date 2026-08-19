@@ -15,6 +15,7 @@ import requests
 import secrets
 import gc
 import json
+import network
 from nature_api import Client
 
 version = "1.0.28"
@@ -37,7 +38,9 @@ if ipgeolocation_key:
 address = "350 5th Avenue, New York, NY"
 latitude = 40.7484773
 longitude = -73.9881643
-settings_file_url = "http://shinyshape.com/windlantern/wind_lantern_settings.json"
+settings_endpoint = "https://shinyshape.com/windlantern/lantern_checkin.php"
+settings_file_url = settings_endpoint
+lantern_mac = None
 
 red_pin = 5
 green_pin = 6
@@ -94,6 +97,14 @@ def connect_to_wifi():
     connection_success = nature_client.connect_wifi()
     errors['wifi_connection'] = not connection_success
     return connection_success
+
+def get_lantern_mac():
+    wlan = network.WLAN(network.STA_IF)
+    mac_bytes = wlan.config('mac')
+    return ''.join('{:02X}'.format(value) for value in mac_bytes)
+
+def get_settings_url():
+    return settings_endpoint + '?mac=' + get_lantern_mac()
 
 def parse_datetime(timestamp):
     # Split the timestamp into date and time
@@ -328,7 +339,7 @@ wind_manager = WindManager()
 
 async def main():
     wdt.feed()
-    global address, latitude, longitude, settings_file_url
+    global address, latitude, longitude, settings_file_url, lantern_mac
     settings = open_config()
     if settings is not None:
         address = settings.get('address', address)
@@ -340,6 +351,10 @@ async def main():
     if not connection:
         print('Could not connect to Wi-Fi, exiting')
         reset()
+
+    lantern_mac = get_lantern_mac()
+    settings_file_url = get_settings_url()
+    print('Lantern MAC:', lantern_mac)
 
     if address:
         try:

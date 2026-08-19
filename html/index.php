@@ -1,98 +1,95 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/db.php';
+
+session_set_cookie_params([
+    'httponly' => true,
+    'samesite' => 'Lax',
+    'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+]);
 session_start();
-
-// CONFIG: JSON settings file
-$jsonFile = __DIR__ . '/wind_lantern_settings.json';
-
-// Helper: read
-function read_json_file(string $path): array {
-    if (!file_exists($path)) return [];
-    $content = @file_get_contents($path);
-    if ($content === false) return [];
-    $decoded = json_decode($content, true);
-    return is_array($decoded) ? $decoded : [];
-}
-
-// Helper: write atomic
-function write_json_file_atomic(string $path, array $data): bool {
-    $dir = dirname($path);
-    $tmp = tempnam($dir, 'tmp_json_');
-    if ($tmp === false) return false;
-
-    $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-    if ($json === false) { @unlink($tmp); return false; }
-
-    $fp = @fopen($tmp, 'c');
-    @chmod($tmp, 0644);
-    if ($fp === false) { @unlink($tmp); return false; }
-
-    if (!flock($fp, LOCK_EX)) { fclose($fp); @unlink($tmp); return false; }
-
-    ftruncate($fp, 0);
-    fwrite($fp, $json);
-    fflush($fp);
-    flock($fp, LOCK_UN);
-    fclose($fp);
-
-    if (!@rename($tmp, $path)) {
-        if (!@copy($tmp, $path)) { @unlink($tmp); return false; }
-        @unlink($tmp);
-    }
-
-    return true;
-}
-
-// CSRF token
-if (!isset($_SESSION['csrf_token'])) {
-    $_SESSION['csrf_token'] = bin2hex(random_bytes(24));
-}
-$csrf_token = $_SESSION['csrf_token'];
 
 $errors = [];
 $successMessage = null;
+$currentUser = null;
+$lantern = null;
+$lanterns = [];
+$data = ['address' => ''];
 
-// Load JSON
-$data = read_json_file($jsonFile);
-if (!isset($data['address'])) $data['address'] = '';
+try {
+    $pdo = db();
 
-// Handle POST (address update)
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $postedToken = $_POST['csrf_token'] ?? '';
-    if (!hash_equals($csrf_token, $postedToken)) {
-        $errors[] = 'Invalid CSRF token.';
+    if (isset($_GET['logout'])) {
+        $_SESSION = [];
+        session_destroy();
+        redirect_to('index.php');
     }
 
-    $rawAddress = $_POST['address'] ?? '';
-    if (!is_string($rawAddress)) {
-        $errors[] = 'Invalid address.';
-    } else {
-        $address = trim($rawAddress);
-        $address = preg_replace('/[\r\n\/"\'\\\\;]+/m', ' ', $address);
-        $address = preg_replace('/\s+/', ' ', $address);
-
-        if ($address === '') {
-            $errors[] = 'Address cannot be empty.';
-        } elseif (strlen($address) > 1024) {
-            $errors[] = 'Address too long.';
-        }
-    }
-
-    if (!$errors) {
-        $data['address'] = $address;
-        if (write_json_file_atomic($jsonFile, $data)) {
-            $successMessage = 'Address updated successfully.';
-
-            @mail(
-                'rob@faludi.com',
-                'Wind Lantern Address Update',
-                "New address: $address\n\nRaw:\n$rawAddress",
-                'From: rob@faludi.com'
-            );
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_SESSION['user_id'])) {
+        $username = trim((string)($_POST['username'] ?? ''));
+        $password = (string)($_POST['password'] ?? '');
+        $statement = $pdo->prepare('SELECT id, username, password_hash, is_admin FROM users WHERE username = :username');
+        $statement->execute(['username' => $username]);
+        $user = $statement->fetch();
+        if (!$user || !password_verify($password, $user['password_hash'])) {
+            $errors[] = 'Username or password is incorrect.';
         } else {
-            $errors[] = 'Could not write JSON (permissions issue?).';
+            session_regenerate_id(true);
+            $_SESSION['user_id'] = (int)$user['id'];
+            $_SESSION['username'] = $user['username'];
+            $_SESSION['is_admin'] = (bool)$user['is_admin'];
+            redirect_to('index.php');
         }
     }
+
+    if (!empty($_SESSION['user_id'])) {
+        $currentUser = require_login();
+        $statement = $currentUser['is_admin']
+            ? $pdo->query('SELECT id, mac_address, address FROM lanterns ORDER BY id')
+            : $pdo->prepare('SELECT id, mac_address, address FROM lanterns WHERE user_id = :user_id ORDER BY id');
+        if ($statement instanceof PDOStatement) {
+            $statement->execute(['user_id' => $currentUser['id']]);
+        }
+        $lanterns = $statement->fetchAll();
+        $selectedId = (int)($_GET['lantern'] ?? ($lanterns[0]['id'] ?? 0));
+        foreach ($lanterns as $candidate) {
+            if ((int)$candidate['id'] === $selectedId) {
+                $lantern = $candidate;
+                break;
+            }
+        }
+        if (!$lantern && $lanterns) {
+            $lantern = $lanterns[0];
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            verify_csrf();
+            $rawAddress = (string)($_POST['address'] ?? '');
+            $address = trim(preg_replace('/[\r\n\/"\'\\\\;]+/m', ' ', $rawAddress) ?? '');
+            $address = preg_replace('/\s+/', ' ', $address) ?? '';
+            if ($address === '') {
+                $errors[] = 'Address cannot be empty.';
+            } elseif (strlen($address) > 1024) {
+                $errors[] = 'Address too long.';
+            } elseif (!$lantern || (int)($_POST['lantern_id'] ?? 0) !== (int)$lantern['id']) {
+                $errors[] = 'Lantern not found.';
+            } else {
+                $statement = $pdo->prepare('UPDATE lanterns SET address = :address WHERE id = :id');
+                $statement->execute(['address' => $address, 'id' => $lantern['id']]);
+                $lantern['address'] = $address;
+                $successMessage = 'Address updated successfully.';
+                @mail('rob@faludi.com', 'Wind Lantern Address Update', "Lantern: {$lantern['mac_address']}\nNew address: $address", 'From: rob@faludi.com');
+            }
+        }
+    }
+} catch (Throwable $error) {
+    $errors[] = 'The database is unavailable. Please try again later.';
+}
+
+$csrf_token = csrf_token();
+
+if ($lantern) {
+    $data['address'] = (string)$lantern['address'];
 }
 
 // -----------------------------------------------------------
@@ -281,6 +278,7 @@ body {
 
 .header-subtitle {
     margin-top: 4px;
+    margin-bottom: 32px;
     font-size: 0.9rem;
     color: #756750;
 }
@@ -562,6 +560,31 @@ textarea:focus {
             Reacts to the wind from any location.
         </div>
 
+        <?php if (!$currentUser): ?>
+            <?php if ($errors): ?>
+                <div class="msg err">
+                    <strong>There was a problem:</strong>
+                    <ul>
+                        <?php foreach ($errors as $e): ?>
+                            <li><?= htmlspecialchars($e) ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            <?php endif; ?>
+            <section class="section">
+                <h2 class="section-title">Wind Lantern Login</h2>
+                <form method="post">
+                    <label for="username">Username</label>
+                    <input id="username" name="username" type="text" autocomplete="username" required>
+                    <label for="password">Password</label>
+                    <input id="password" name="password" type="password" autocomplete="current-password" required>
+                    <div class="btn-row">
+                        <button class="btn btn-update" type="submit">Log In</button>
+                    </div>
+                </form>
+                <p><a href="mailto:rob@faludi.com?subject=Wind%20Lantern%20lost%20password">Lost Password?</a></p>
+            </section>
+        <?php else: ?>
         <?php if ($errors): ?>
             <div class="msg err">
                 <strong>There was a problem:</strong>
@@ -579,6 +602,27 @@ textarea:focus {
             </div>
         <?php endif; ?>
 
+        <div class="section-caption">
+            Signed in as <?= htmlspecialchars($currentUser['username']) ?>.
+            <a href="index.php?logout=1">Log out</a>
+            <?php if ($currentUser['is_admin']): ?>
+                | <a href="admin.php">Admin setup</a>
+            <?php endif; ?>
+        </div>
+
+        <?php if (count($lanterns) > 1): ?>
+            <form method="get" class="section-caption">
+                <label for="lantern">Lantern</label>
+                <select id="lantern" name="lantern" onchange="this.form.submit()">
+                    <?php foreach ($lanterns as $option): ?>
+                        <option value="<?= (int)$option['id'] ?>" <?= $lantern && (int)$lantern['id'] === (int)$option['id'] ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($option['mac_address']) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </form>
+        <?php endif; ?>
+
         <div class="columns">
             <!-- LEFT: Address / location -->
             <div class="col">
@@ -590,6 +634,7 @@ textarea:focus {
 
                     <form method="post">
                         <textarea name="address"><?= htmlspecialchars($data['address']) ?></textarea>
+                        <input type="hidden" name="lantern_id" value="<?= $lantern ? (int)$lantern['id'] : 0 ?>">
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
 
                         <div class="btn-row">
@@ -611,7 +656,7 @@ textarea:focus {
                             <?= htmlspecialchars($windError) ?>
                         </div>
                         <div class="wind-note">
-                            Once you have saved an address, the tea house will listen for the wind again.
+                            Once you have saved an address, the lantern will listen for the wind again.
                         </div>
                     <?php elseif ($windResult): ?>
                         <div class="row">
@@ -665,6 +710,7 @@ textarea:focus {
                 </section>
             </div>
         </div>
+        <?php endif; ?>
     </div>
 </div>
 <div class="tatami-stripes"></div>
