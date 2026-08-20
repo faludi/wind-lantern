@@ -6,3 +6,4 @@ secrets.py
 __pycache__/
 *.pyc
 wind_lantern_db_config.php
+testing/
