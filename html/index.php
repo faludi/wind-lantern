@@ -173,7 +173,7 @@ if ($addr === '') {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>風灯 – Wind Lantern </title>
+<title> Wind Lantern </title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <style>
