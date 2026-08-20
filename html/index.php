@@ -553,11 +553,11 @@ textarea:focus {
         <div class="shoji-grid" aria-hidden="true"></div>
 
         <header class="header">
-            <div class="header-title-jp">風灯</div>
+            <!-- <div class="header-title-jp">風灯</div> -->
             <div class="header-title-main">Wind Lantern</div>
         </header>
         <div class="header-subtitle">
-            Reacts to the wind from any location.
+            Connect with places that matter to you.
         </div>
 
         <?php if (!$currentUser): ?>
@@ -582,7 +582,7 @@ textarea:focus {
                         <button class="btn btn-update" type="submit">Log In</button>
                     </div>
                 </form>
-                <p><a href="mailto:rob@faludi.com?subject=Wind%20Lantern%20lost%20password">Lost Password?</a></p>
+                <p><a href="mailto:rob@faludi.com?subject=Wind%20Lantern%20forgot%20password">Forgot Password?</a></p>
             </section>
         <?php else: ?>
         <?php if ($errors): ?>
@@ -603,6 +603,7 @@ textarea:focus {
         <?php endif; ?>
 
         <div class="section-caption">
+            <br>
             Signed in as <?= htmlspecialchars($currentUser['username']) ?>.
             <a href="index.php?logout=1">Log out</a>
             <?php if ($currentUser['is_admin']): ?>
@@ -629,7 +630,7 @@ textarea:focus {
                 <section class="section">
                     <h2 class="section-title">Monitored Address</h2>
                     <div class="section-caption">
-                        Enter the address for the lantern to watch over. 
+                        The lantern will react to the wind in this place. 
                     </div>
 
                     <form method="post">
@@ -656,7 +657,7 @@ textarea:focus {
                             <?= htmlspecialchars($windError) ?>
                         </div>
                         <div class="wind-note">
-                            Once you have saved an address, the lantern will listen for the wind again.
+                            You can use street addresses, city names, or countries.
                         </div>
                     <?php elseif ($windResult): ?>
                         <div class="row">
