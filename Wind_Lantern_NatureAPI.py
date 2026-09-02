@@ -18,7 +18,7 @@ import json
 import network
 from nature_api import Client
 
-version = "1.0.31"
+version = "1.0.32"
 print("Wind Lantern NatureAPI - Version:", version)
 
 # Wi-Fi credentials
@@ -43,6 +43,7 @@ settings_file_url = settings_endpoint
 lantern_mac = None
 lantern_brightness = 100
 color_temperature = 0
+flicker_intensity = 1.0
 
 red_pin = 5
 green_pin = 6
@@ -150,7 +151,7 @@ def open_config():
         print("Creating configuration file.")
         try:
             with open("config.json", "w") as f:
-                config = {"address": "350 5th Avenue, New York, NY", "latitude": 40.7484773, "longitude": -73.9881643, "settings_file_url": "http://shinyshape.com/windlantern/wind_lantern_settings.json", "lantern_brightness": 100, "color_temperature": 0}
+                config = {"address": "350 5th Avenue, New York, NY", "latitude": 40.7484773, "longitude": -73.9881643, "settings_file_url": "http://shinyshape.com/windlantern/wind_lantern_settings.json", "lantern_brightness": 100, "color_temperature": 0, "flicker_intensity": 1.0}
                 json_string = json.dumps(config)
                 # print(config)
                 f.write(json_string)
@@ -168,14 +169,15 @@ def save_config():
                 config.get('longitude') == longitude and
                 config.get('settings_file_url') == settings_file_url and
                 config.get('lantern_brightness') == lantern_brightness and
-                config.get('color_temperature') == color_temperature):
+                config.get('color_temperature') == color_temperature and
+                config.get('flicker_intensity') == flicker_intensity):
                 print("Configuration unchanged, not saving.")
                 return
     except Exception as e:
         print("Error reading config for comparison:", e)
     try:
         with open("config.json", "w") as f:
-            config = {"address": address, "latitude": latitude, "longitude": longitude, "settings_file_url": settings_file_url, "lantern_brightness": lantern_brightness, "color_temperature": color_temperature}
+            config = {"address": address, "latitude": latitude, "longitude": longitude, "settings_file_url": settings_file_url, "lantern_brightness": lantern_brightness, "color_temperature": color_temperature, "flicker_intensity": flicker_intensity}
             json_string = json.dumps(config)
             # print(config)
             f.write(json_string)
@@ -257,7 +259,8 @@ async def error_led(milliseconds):
 
 
 class WindManager:
-    def __init__(self):
+    def __init__(self, flicker_intensity=1.0):
+        self.flicker_intensity = flicker_intensity
         self.wind_factor = 0
         self.gust_factor = 0
         self.gust_ramp = random.randint(GUST_LENGTH_LOW, GUST_LENGTH_HIGH) * 0.25
@@ -277,8 +280,10 @@ class WindManager:
 
     def _calc_wind_factor(self, wind_speed, wind_gusts):
         self.wind_factor = max((wind_speed), 0) # protect against negative wind factor
+        self.wind_factor *= self.flicker_intensity
         self.wind_factor = self.adjust(self.wind_factor, k=0.02, center=10)
         self.gust_factor = max((wind_gusts), 0) # protect against negative wind factor
+        self.gust_factor *= self.flicker_intensity
         self.gust_factor = self.adjust(self.gust_factor, k=0.02, center=10)
 
     def _calc_gusting(self):
@@ -340,6 +345,12 @@ def normalize_color_temperature(value):
     except (TypeError, ValueError):
         return 0
 
+def normalize_flicker_intensity(value):
+    try:
+        return max(float(value), 0)
+    except (TypeError, ValueError):
+        return 1
+
 def rand_flicker_sleep():
     time.sleep(random.randint(3, 10) / 100.0)
 
@@ -351,11 +362,11 @@ def light_candle():
         green_light()
         time.sleep_ms(1)
 
-wind_manager = WindManager()
+wind_manager = WindManager(flicker_intensity)
 
 async def main():
     wdt.feed()
-    global address, latitude, longitude, settings_file_url, lantern_mac, lantern_brightness, color_temperature
+    global address, latitude, longitude, settings_file_url, lantern_mac, lantern_brightness, color_temperature, flicker_intensity
     settings = open_config()
     if settings is not None:
         address = settings.get('address', address)
@@ -368,6 +379,10 @@ async def main():
         color_temperature = normalize_color_temperature(
             settings.get('color_temperature', color_temperature)
         )
+        flicker_intensity = normalize_flicker_intensity(
+            settings.get('flicker_intensity', flicker_intensity)
+        )
+        wind_manager.flicker_intensity = flicker_intensity
 
     connection = connect_to_wifi()
     if not connection:
