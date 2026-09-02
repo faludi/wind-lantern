@@ -18,7 +18,7 @@ import json
 import network
 from nature_api import Client
 
-version = "1.0.28"
+version = "1.0.29"
 print("Wind Lantern NatureAPI - Version:", version)
 
 # Wi-Fi credentials
@@ -41,6 +41,7 @@ longitude = -73.9881643
 settings_endpoint = "https://shinyshape.com/windlantern/lantern_checkin.php"
 settings_file_url = settings_endpoint
 lantern_mac = None
+lantern_brightness = 100
 
 red_pin = 5
 green_pin = 6
@@ -81,7 +82,7 @@ green_pwm.freq(300)
 green_pwm.duty(100)
 blue_pwm = Pulse(Pin(blue_pin))
 blue_pwm.freq(300)
-blue_pwm.duty(99)
+blue_pwm.duty(100)
 red_pwm_2 = Pulse(Pin(red_pin_2))
 red_pwm_2.freq(300)
 red_pwm_2.duty(100)
@@ -90,7 +91,7 @@ green_pwm_2.freq(300)
 green_pwm_2.duty(100)
 blue_pwm_2 = Pulse(Pin(blue_pin_2))
 blue_pwm_2.freq(300)
-blue_pwm_2.duty(99)
+blue_pwm_2.duty(100)
 
 def connect_to_wifi():
     wdt.feed()
@@ -149,7 +150,7 @@ def open_config():
         print("Creating configuration file.")
         try:
             with open("config.json", "w") as f:
-                config = {"address": "350 5th Avenue, New York, NY", "latitude": 40.7484773, "longitude": -73.9881643, "settings_file_url": "http://shinyshape.com/windlantern/wind_lantern_settings.json"}
+                config = {"address": "350 5th Avenue, New York, NY", "latitude": 40.7484773, "longitude": -73.9881643, "settings_file_url": "http://shinyshape.com/windlantern/wind_lantern_settings.json", "lantern_brightness": 100}
                 json_string = json.dumps(config)
                 # print(config)
                 f.write(json_string)
@@ -165,14 +166,15 @@ def save_config():
             if (config.get('address') == address and
                 config.get('latitude') == latitude and
                 config.get('longitude') == longitude and
-                config.get('settings_file_url') == settings_file_url):
+                config.get('settings_file_url') == settings_file_url and
+                config.get('lantern_brightness') == lantern_brightness):
                 print("Configuration unchanged, not saving.")
                 return
     except Exception as e:
         print("Error reading config for comparison:", e)
     try:
         with open("config.json", "w") as f:
-            config = {"address": address, "latitude": latitude, "longitude": longitude, "settings_file_url": settings_file_url}
+            config = {"address": address, "latitude": latitude, "longitude": longitude, "settings_file_url": settings_file_url, "lantern_brightness": lantern_brightness}
             json_string = json.dumps(config)
             # print(config)
             f.write(json_string)
@@ -313,17 +315,25 @@ class WindManager:
 def red_light():
         global wind_manager
         factor = wind_manager.get_wind_factor()
-        red_pwm.duty( 100 - min(random.uniform(93-factor, 100), 100) )
-        red_pwm_2.duty(100 - min(random.uniform(93-factor, 100) , 100) ) 
+        red_pwm.duty(scale_brightness(100 - min(random.uniform(93-factor, 100), 100)))
+        red_pwm_2.duty(scale_brightness(100 - min(random.uniform(93-factor, 100) , 100)))
         rand_flicker_sleep()
- 
+
 def green_light():
         global wind_manager
         factor = wind_manager.get_wind_factor()
-        green_pwm.duty( 100 - min(random.uniform(33-factor, 34) ,100) )
-        green_pwm_2.duty(100 - min(random.uniform(33-factor, 34) ,100) )
+        green_pwm.duty(scale_brightness(100 - min(random.uniform(29-factor, 30) ,100)))
+        green_pwm_2.duty(scale_brightness(100 - min(random.uniform(29-factor, 30) ,100)))
         rand_flicker_sleep()
- 
+def normalize_brightness(value):
+    try:
+        return min(max(float(value), 0), 100)
+    except (TypeError, ValueError):
+        return 100
+
+def scale_brightness(duty):
+    return 100 - ((100 - duty) * lantern_brightness / 100)
+
 def rand_flicker_sleep():
     time.sleep(random.randint(3, 10) / 100.0)
 
@@ -339,13 +349,16 @@ wind_manager = WindManager()
 
 async def main():
     wdt.feed()
-    global address, latitude, longitude, settings_file_url, lantern_mac
+    global address, latitude, longitude, settings_file_url, lantern_mac, lantern_brightness
     settings = open_config()
     if settings is not None:
         address = settings.get('address', address)
         latitude = settings.get('latitude', latitude)
         longitude = settings.get('longitude', longitude)
         settings_file_url = settings.get('settings_file_url', settings_file_url)
+        lantern_brightness = normalize_brightness(
+            settings.get('lantern_brightness', lantern_brightness)
+        )
 
     connection = connect_to_wifi()
     if not connection:
@@ -421,4 +434,3 @@ except KeyboardInterrupt:
     green_pwm_2.duty(100)
     print('Program Interrupted by the user')
     terminateThread = True
-
