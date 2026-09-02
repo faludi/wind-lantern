@@ -18,7 +18,7 @@ import json
 import network
 from nature_api import Client
 
-version = "1.0.30"
+version = "1.0.31"
 print("Wind Lantern NatureAPI - Version:", version)
 
 # Wi-Fi credentials
@@ -57,7 +57,6 @@ GUST_INTERVAL_LOW = 15000  # 15 seconds
 GUST_INTERVAL_HIGH = 40000  # 40 seconds
 GUST_LENGTH_LOW = 3000  # 3 seconds
 GUST_LENGTH_HIGH = 15000  # 15 seconds
-WIND_FACTOR_MULTIPLIER = 1.2
 WIND_FACTOR_K = 0.03 # how strongly the wind factor is pulled towards the center value
 # A gentle breeze should have the most effect, and higher winds should have less effect to prevent the lantern from flickering too wildly in strong winds. 
 WIND_FACTOR_CENTER = 6 # increase wind effect below this speed, decrease effect above this speed.
@@ -278,10 +277,8 @@ class WindManager:
 
     def _calc_wind_factor(self, wind_speed, wind_gusts):
         self.wind_factor = max((wind_speed), 0) # protect against negative wind factor
-        # self.wind_factor = (self.wind_factor * WIND_FACTOR_MULTIPLIER)   # increase wind factor effect
         self.wind_factor = self.adjust(self.wind_factor, k=0.02, center=10)
         self.gust_factor = max((wind_gusts), 0) # protect against negative wind factor
-        # self.gust_factor = (self.gust_factor * WIND_FACTOR_MULTIPLIER)   # increase wind factor effect
         self.gust_factor = self.adjust(self.gust_factor, k=0.02, center=10)
 
     def _calc_gusting(self):
