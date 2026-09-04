@@ -4,6 +4,9 @@
     "longitude": -122.3942,
     "setttings_file_url": "http://shinyshape.com/windlantern/wind_lantern_settings.json",
     "lantern_brightness": 100,
+    "night_brightness": 10,
+    "night_start": 22,
+    "night_end": 8,
     "color_temperature": 0,
     "flicker_intensity": 1.0
 }
