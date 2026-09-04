@@ -18,8 +18,10 @@ import json
 import network
 from nature_api import Client
 
-version = "1.0.33"
+version = "1.0.34"
 print("Wind Lantern NatureAPI - Version:", version)
+
+time.sleep(2) # allow usb connection on startup
 
 # Wi-Fi credentials
 ssid = secrets.WIFI_SSID  # your SSID name
@@ -41,10 +43,10 @@ longitude = -73.9881643
 settings_endpoint = "https://shinyshape.com/windlantern/lantern_checkin.php"
 settings_file_url = settings_endpoint
 lantern_mac = None
-lantern_brightness = 100
+day_brightness = 100
 night_brightness = 10
-night_start = 22
-night_end = 8
+night_start_localtime = 22
+night_end_localtime = 8
 color_temperature = 0
 flicker_intensity = 1.0
 night_mode_current = 100
@@ -182,10 +184,10 @@ def save_config():
                 config.get('latitude') == latitude and
                 config.get('longitude') == longitude and
                 config.get('settings_file_url') == settings_file_url and
-                config.get('lantern_brightness') == lantern_brightness and
+                config.get('lantern_brightness') == day_brightness and
                 config.get('night_brightness') == night_brightness and
-                config.get('night_start') == night_start and
-                config.get('night_end') == night_end and
+                config.get('night_start') == night_start_localtime and
+                config.get('night_end') == night_end_localtime and
                 config.get('color_temperature') == color_temperature and
                 config.get('flicker_intensity') == flicker_intensity):
                 print("Configuration unchanged, not saving.")
@@ -194,7 +196,7 @@ def save_config():
         print("Error reading config for comparison:", e)
     try:
         with open("config.json", "w") as f:
-            config = {"address": address, "latitude": latitude, "longitude": longitude, "settings_file_url": settings_file_url, "lantern_brightness": lantern_brightness, "night_brightness": night_brightness, "night_start": night_start, "night_end": night_end, "color_temperature": color_temperature, "flicker_intensity": flicker_intensity}
+            config = {"address": address, "latitude": latitude, "longitude": longitude, "settings_file_url": settings_file_url, "lantern_brightness": day_brightness, "night_brightness": night_brightness, "night_start": night_start_localtime, "night_end": night_end_localtime, "color_temperature": color_temperature, "flicker_intensity": flicker_intensity}
             json_string = json.dumps(config)
             # print(config)
             f.write(json_string)
@@ -357,7 +359,7 @@ def normalize_brightness(value):
 
 def scale_brightness(duty, brightness_override=None):
     if brightness_override is None:
-        brightness_override = lantern_brightness
+        brightness_override = day_brightness
     brightness_level = normalize_brightness(brightness_override)
     return 100 - ((100 - duty) * brightness_level / 100)
 
@@ -416,7 +418,7 @@ def is_night_window(local_hour, start_hour, end_hour):
 def update_night_mode_state():
     global night_mode_current, night_mode_target, night_mode_fade_from, night_mode_fade_to, night_mode_fade_start, night_mode_next_update
     if not initial_time_sync_complete:
-        return lantern_brightness
+        return day_brightness
     now = time.ticks_ms()
     # Skip recompute on most frames; the flicker loop calls this far more often than the state can change.
     if night_mode_fade_start is None and time.ticks_diff(now, night_mode_next_update) < 0:
@@ -425,7 +427,8 @@ def update_night_mode_state():
 
     offset_hours = get_local_timezone_offset_hours()
     local_hour = (time.gmtime()[3] + offset_hours) % 24
-    target = night_brightness if is_night_window(local_hour, night_start, night_end) else lantern_brightness
+    # print(f"Local hour: {local_hour}, Night start: {night_start_localtime}, Night end: {night_end_localtime}")
+    target = night_brightness if is_night_window(local_hour, night_start_localtime, night_end_localtime) else day_brightness
 
     if night_mode_target != target:
         night_mode_fade_from = night_mode_current
@@ -461,24 +464,24 @@ wind_manager = WindManager(flicker_intensity)
 
 async def main():
     wdt.feed()
-    global address, latitude, longitude, settings_file_url, lantern_mac, lantern_brightness, night_brightness, night_start, night_end, color_temperature, flicker_intensity, night_mode_current, night_mode_target, night_mode_fade_from, night_mode_fade_to, night_mode_fade_start, initial_time_sync_complete
+    global address, latitude, longitude, settings_file_url, lantern_mac, day_brightness, night_brightness, night_start_localtime, night_end_localtime, color_temperature, flicker_intensity, night_mode_current, night_mode_target, night_mode_fade_from, night_mode_fade_to, night_mode_fade_start, initial_time_sync_complete
     settings = open_config()
     if settings is not None:
         address = settings.get('address', address)
         latitude = settings.get('latitude', latitude)
         longitude = settings.get('longitude', longitude)
         settings_file_url = settings.get('settings_file_url', settings_file_url)
-        lantern_brightness = normalize_brightness(
-            settings.get('lantern_brightness', lantern_brightness)
+        day_brightness = normalize_brightness(
+            settings.get('lantern_brightness', day_brightness)
         )
         night_brightness = normalize_night_brightness(
             settings.get('night_brightness', night_brightness)
         )
-        night_start = normalize_night_hour(
-            settings.get('night_start', night_start)
+        night_start_localtime = normalize_night_hour(
+            settings.get('night_start', night_start_localtime)
         )
-        night_end = normalize_night_hour(
-            settings.get('night_end', night_end)
+        night_end_localtime = normalize_night_hour(
+            settings.get('night_end', night_end_localtime)
         )
         color_temperature = normalize_color_temperature(
             settings.get('color_temperature', color_temperature)
@@ -488,10 +491,10 @@ async def main():
         )
         wind_manager.flicker_intensity = flicker_intensity
 
-    night_mode_current = lantern_brightness
-    night_mode_target = lantern_brightness
-    night_mode_fade_from = lantern_brightness
-    night_mode_fade_to = lantern_brightness
+    night_mode_current = day_brightness
+    night_mode_target = day_brightness
+    night_mode_fade_from = day_brightness
+    night_mode_fade_to = day_brightness
     night_mode_fade_start = None
 
     connection = connect_to_wifi()
