@@ -5,7 +5,6 @@
 # https://grantwinney.com/raspberry-pi-flickering-candle/
 
 
-from math import log
 import uasyncio as asyncio
 from machine import Pin, PWM, reset, WDT
 import time
