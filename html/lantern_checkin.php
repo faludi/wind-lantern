@@ -13,7 +13,10 @@ if ($mac === null) {
 }
 
 try {
-    $statement = db()->prepare('SELECT address FROM lanterns WHERE mac_address = :mac AND is_active = 1');
+    $statement = db()->prepare(
+        'SELECT address, lantern_brightness, night_brightness, night_start, night_end, color_temperature, flicker_intensity
+         FROM lanterns WHERE mac_address = :mac AND is_active = 1'
+    );
     $statement->execute(['mac' => $mac]);
     $lantern = $statement->fetch();
     if (!$lantern) {
@@ -21,7 +24,15 @@ try {
         echo json_encode(['error' => 'Lantern not found.']);
         exit;
     }
-    echo json_encode(['address' => $lantern['address']], JSON_UNESCAPED_UNICODE);
+    echo json_encode([
+        'address' => $lantern['address'],
+        'lantern_brightness' => (int)$lantern['lantern_brightness'],
+        'night_brightness' => (int)$lantern['night_brightness'],
+        'night_start' => (int)$lantern['night_start'],
+        'night_end' => (int)$lantern['night_end'],
+        'color_temperature' => (int)$lantern['color_temperature'],
+        'flicker_intensity' => (float)$lantern['flicker_intensity'],
+    ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $error) {
     http_response_code(500);
     echo json_encode(['error' => 'Service unavailable.']);

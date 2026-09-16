@@ -59,3 +59,39 @@ function verify_csrf(): void {
         throw new RuntimeException('Invalid CSRF token.');
     }
 }
+
+/**
+ * Validates a raw string as an integer within [min, max].
+ * Returns the parsed int on success, or null and appends an error message on failure.
+ */
+function validate_int_range(string $raw, int $min, int $max, string $label, array &$errors): ?int {
+    $trimmed = trim($raw);
+    if ($trimmed === '' || !preg_match('/^-?\d+$/', $trimmed)) {
+        $errors[$label] = "$label must be a whole number between $min and $max.";
+        return null;
+    }
+    $value = (int)$trimmed;
+    if ($value < $min || $value > $max) {
+        $errors[$label] = "$label must be between $min and $max.";
+        return null;
+    }
+    return $value;
+}
+
+/**
+ * Validates a raw string as a float within [min, max].
+ * Returns the parsed float on success, or null and appends an error message on failure.
+ */
+function validate_float_range(string $raw, float $min, float $max, string $label, array &$errors): ?float {
+    $trimmed = trim($raw);
+    if ($trimmed === '' || !is_numeric($trimmed)) {
+        $errors[$label] = "$label must be a number between $min and $max.";
+        return null;
+    }
+    $value = (float)$trimmed;
+    if ($value < $min || $value > $max) {
+        $errors[$label] = "$label must be between $min and $max.";
+        return null;
+    }
+    return $value;
+}

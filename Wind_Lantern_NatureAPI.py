@@ -17,7 +17,7 @@ import json
 import network
 from nature_api import Client
 
-version = "1.0.34"
+version = "1.0.35"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -224,12 +224,20 @@ def fetch_address(url):
         return None
 
     
-async def update_location():
+async def update_settings():
     global address, latitude, longitude, settings_file_url
-    location = fetch_address(settings_file_url)
-    if location is not None:
-        address = location.get('address')
+    global day_brightness, night_brightness, night_start_localtime, night_end_localtime, color_temperature, flicker_intensity
+    settings = fetch_address(settings_file_url)
+    if settings is not None:
+        address = settings.get('address', address)
         print("Using Address:", address)
+        day_brightness = normalize_brightness(settings.get('lantern_brightness', day_brightness))
+        night_brightness = normalize_night_brightness(settings.get('night_brightness', night_brightness))
+        night_start_localtime = normalize_night_hour(settings.get('night_start', night_start_localtime))
+        night_end_localtime = normalize_night_hour(settings.get('night_end', night_end_localtime))
+        color_temperature = normalize_color_temperature(settings.get('color_temperature', color_temperature))
+        flicker_intensity = normalize_flicker_intensity(settings.get('flicker_intensity', flicker_intensity))
+        wind_manager.flicker_intensity = flicker_intensity
         if address:
             try:
                 nature_client.set_location(address)
@@ -242,14 +250,14 @@ async def update_location():
                         nature_client.set_timezone_from_location()
                     except Exception as e:
                         print('Warning: failed to set timezone from location:', e)
-                    save_config()
                 else:
                     raise ValueError('Location lookup returned no coordinates')
             except Exception as e:
                 print('Error setting location:', e)
                 errors['location_fetch'] = True
+        save_config()
     else:
-        print("Using default coordinates")
+        print("Using default settings")
         errors['location_fetch'] = True
 
 async def error_led(milliseconds):
@@ -409,7 +417,7 @@ def get_local_timezone_offset_hours():
 
 def is_night_window(local_hour, start_hour, end_hour):
     if start_hour == end_hour:
-        return True
+        return False
     if start_hour < end_hour:
         return local_hour >= start_hour and local_hour < end_hour
     return local_hour >= start_hour or local_hour < end_hour
@@ -520,7 +528,7 @@ async def main():
         wdt.feed()
         if not nature_client.wifi_connected:
             break # exit if no connection
-        await update_location()
+        await update_settings()
         if (time.time() >= next_sync):
             try:
                 print('Syncing time via NTP...')

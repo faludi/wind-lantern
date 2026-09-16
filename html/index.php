@@ -14,7 +14,71 @@ $successMessage = null;
 $currentUser = null;
 $lantern = null;
 $lanterns = [];
-$data = ['address' => ''];
+$fieldErrors = [];
+
+$settingsFields = [
+    'address' => [
+        'label' => 'Address',
+        'hint' => 'Text, up to 1024 characters',
+        'type' => 'string',
+        'default' => '',
+    ],
+    'lantern_brightness' => [
+        'label' => 'Lantern Brightness',
+        'hint' => 'Integer, 0 to 100',
+        'type' => 'int',
+        'min' => 0,
+        'max' => 100,
+        'default' => 100,
+    ],
+    'night_brightness' => [
+        'label' => 'Night Brightness',
+        'hint' => 'Integer, 0 to 100',
+        'type' => 'int',
+        'min' => 0,
+        'max' => 100,
+        'default' => 10,
+    ],
+    'night_start' => [
+        'label' => 'Night Start',
+        'hint' => 'Integer, 0 to 23 (hour of day)',
+        'type' => 'int',
+        'min' => 0,
+        'max' => 23,
+        'default' => 11,
+    ],
+    'night_end' => [
+        'label' => 'Night End',
+        'hint' => 'Integer, 0 to 23 (hour of day)',
+        'type' => 'int',
+        'min' => 0,
+        'max' => 23,
+        'default' => 11,
+    ],
+    'color_temperature' => [
+        'label' => 'Color Temperature',
+        'hint' => 'Integer, -5 to 5',
+        'type' => 'int',
+        'min' => -5,
+        'max' => 5,
+        'default' => 0,
+    ],
+    'flicker_intensity' => [
+        'label' => 'Flicker Intensity',
+        'hint' => 'Decimal, 0.1 to 10',
+        'type' => 'float',
+        'min' => 0.1,
+        'max' => 10,
+        'default' => 1.0,
+    ],
+];
+
+$data = [];
+foreach ($settingsFields as $key => $field) {
+    $data[$key] = $field['default'];
+}
+
+$settingsColumns = 'id, mac_address, address, lantern_brightness, night_brightness, night_start, night_end, color_temperature, flicker_intensity';
 
 try {
     $pdo = db();
@@ -45,8 +109,8 @@ try {
     if (!empty($_SESSION['user_id'])) {
         $currentUser = require_login();
         $statement = $currentUser['is_admin']
-            ? $pdo->query('SELECT id, mac_address, address FROM lanterns ORDER BY id')
-            : $pdo->prepare('SELECT id, mac_address, address FROM lanterns WHERE user_id = :user_id ORDER BY id');
+            ? $pdo->query("SELECT $settingsColumns FROM lanterns ORDER BY id")
+            : $pdo->prepare("SELECT $settingsColumns FROM lanterns WHERE user_id = :user_id ORDER BY id");
         if ($statement instanceof PDOStatement) {
             $statement->execute(['user_id' => $currentUser['id']]);
         }
@@ -64,21 +128,71 @@ try {
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             verify_csrf();
-            $rawAddress = (string)($_POST['address'] ?? '');
-            $address = trim(preg_replace('/[\r\n\/"\'\\\\;]+/m', ' ', $rawAddress) ?? '');
-            $address = preg_replace('/\s+/', ' ', $address) ?? '';
-            if ($address === '') {
-                $errors[] = 'Address cannot be empty.';
-            } elseif (strlen($address) > 1024) {
-                $errors[] = 'Address too long.';
-            } elseif (!$lantern || (int)($_POST['lantern_id'] ?? 0) !== (int)$lantern['id']) {
+            if (!$lantern || (int)($_POST['lantern_id'] ?? 0) !== (int)$lantern['id']) {
                 $errors[] = 'Lantern not found.';
             } else {
-                $statement = $pdo->prepare('UPDATE lanterns SET address = :address WHERE id = :id');
-                $statement->execute(['address' => $address, 'id' => $lantern['id']]);
-                $lantern['address'] = $address;
-                $successMessage = 'Address updated successfully.';
-                @mail('rob@faludi.com', 'Wind Lantern Address Update', "Lantern: {$lantern['mac_address']}\nNew address: $address", 'From: rob@faludi.com');
+                $rawAddress = (string)($_POST['address'] ?? '');
+                $address = trim(preg_replace('/[\r\n\/"\'\\\\;]+/m', ' ', $rawAddress) ?? '');
+                $address = preg_replace('/\s+/', ' ', $address) ?? '';
+                $data['address'] = $address;
+                if ($address === '') {
+                    $fieldErrors['Address'] = 'Address cannot be empty.';
+                } elseif (strlen($address) > 1024) {
+                    $fieldErrors['Address'] = 'Address must be 1024 characters or fewer.';
+                }
+
+                $numericValues = [];
+                foreach ($settingsFields as $key => $field) {
+                    if ($key === 'address') {
+                        continue;
+                    }
+                    $raw = (string)($_POST[$key] ?? '');
+                    $data[$key] = $raw;
+                    $numericValues[$key] = $field['type'] === 'float'
+                        ? validate_float_range($raw, $field['min'], $field['max'], $field['label'], $fieldErrors)
+                        : validate_int_range($raw, (int)$field['min'], (int)$field['max'], $field['label'], $fieldErrors);
+                }
+
+                if (!$fieldErrors) {
+                    $changes = [];
+                    if ($address !== (string)$lantern['address']) {
+                        $changes[] = "Address: {$lantern['address']} -> $address";
+                    }
+                    foreach ($numericValues as $key => $value) {
+                        if ((string)$value !== (string)$lantern[$key]) {
+                            $changes[] = "{$settingsFields[$key]['label']}: {$lantern[$key]} -> $value";
+                        }
+                    }
+
+                    $statement = $pdo->prepare(
+                        'UPDATE lanterns SET address = :address, lantern_brightness = :lantern_brightness,
+                         night_brightness = :night_brightness, night_start = :night_start, night_end = :night_end,
+                         color_temperature = :color_temperature, flicker_intensity = :flicker_intensity
+                         WHERE id = :id'
+                    );
+                    $statement->execute([
+                        'address' => $address,
+                        'lantern_brightness' => $numericValues['lantern_brightness'],
+                        'night_brightness' => $numericValues['night_brightness'],
+                        'night_start' => $numericValues['night_start'],
+                        'night_end' => $numericValues['night_end'],
+                        'color_temperature' => $numericValues['color_temperature'],
+                        'flicker_intensity' => $numericValues['flicker_intensity'],
+                        'id' => $lantern['id'],
+                    ]);
+                    $lantern = array_merge($lantern, ['address' => $address], $numericValues);
+                    $successMessage = 'Settings updated successfully.';
+                    if ($changes) {
+                        @mail(
+                            'rob@faludi.com',
+                            'Wind Lantern Settings Update',
+                            "Lantern: {$lantern['mac_address']}\n" . implode("\n", $changes),
+                            'From: rob@faludi.com'
+                        );
+                    }
+                } else {
+                    $errors = array_values($fieldErrors);
+                }
             }
         }
     }
@@ -88,8 +202,10 @@ try {
 
 $csrf_token = csrf_token();
 
-if ($lantern) {
-    $data['address'] = (string)$lantern['address'];
+if ($lantern && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+    foreach ($settingsFields as $key => $field) {
+        $data[$key] = $lantern[$key];
+    }
 }
 
 // -----------------------------------------------------------
@@ -349,6 +465,43 @@ textarea {
     line-height: 1.4;
 }
 textarea:focus {
+    border-color: #7aa25f;
+    box-shadow:
+        0 0 0 1px rgba(112,149,83,0.4),
+        0 0 0 4px rgba(170,200,145,0.3);
+}
+
+/* Settings form fields */
+.settings-form label {
+    display: block;
+    margin-top: 12px;
+    font-weight: 600;
+    color: #5a4631;
+    font-size: 0.9rem;
+}
+.settings-form .field-hint {
+    font-size: 0.78rem;
+    color: #8b7a67;
+    margin: 2px 0 6px;
+}
+.settings-form .field-error {
+    font-size: 0.82rem;
+    color: #8b2020;
+    margin: 2px 0 8px;
+}
+.settings-form input[type="number"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(176,150,110,0.7);
+    background:
+        radial-gradient(circle at 0% 0%, rgba(255,255,255,0.8), rgba(250,243,232,0.9));
+    color: #4b3f33;
+    font-size: 0.95rem;
+}
+.settings-form input[type="number"]:focus {
+    outline: none;
     border-color: #7aa25f;
     box-shadow:
         0 0 0 1px rgba(112,149,83,0.4),
@@ -625,22 +778,41 @@ textarea:focus {
         <?php endif; ?>
 
         <div class="columns">
-            <!-- LEFT: Address / location -->
+            <!-- LEFT: Lantern settings -->
             <div class="col">
                 <section class="section">
-                    <h2 class="section-title">Monitored Address</h2>
+                    <h2 class="section-title">Lantern Settings</h2>
                     <div class="section-caption">
-                        The lantern will react to the wind in this place. 
+                        These settings apply to your lantern and always override anything stored on the device.
                     </div>
 
-                    <form method="post">
-                        <textarea name="address"><?= htmlspecialchars($data['address']) ?></textarea>
+                    <form method="post" class="settings-form">
                         <input type="hidden" name="lantern_id" value="<?= $lantern ? (int)$lantern['id'] : 0 ?>">
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
 
+                        <?php foreach ($settingsFields as $key => $field): ?>
+                            <label for="<?= htmlspecialchars($key) ?>"><?= htmlspecialchars($field['label']) ?></label>
+                            <div class="field-hint"><?= htmlspecialchars($field['hint']) ?></div>
+                            <?php if ($key === 'address'): ?>
+                                <textarea id="address" name="address"><?= htmlspecialchars((string)$data['address']) ?></textarea>
+                            <?php else: ?>
+                                <input
+                                    id="<?= htmlspecialchars($key) ?>"
+                                    name="<?= htmlspecialchars($key) ?>"
+                                    type="number"
+                                    step="<?= $field['type'] === 'float' ? '0.1' : '1' ?>"
+                                    min="<?= htmlspecialchars((string)$field['min']) ?>"
+                                    max="<?= htmlspecialchars((string)$field['max']) ?>"
+                                    value="<?= htmlspecialchars((string)$data[$key]) ?>">
+                            <?php endif; ?>
+                            <?php if (!empty($fieldErrors[$field['label']])): ?>
+                                <div class="field-error"><?= htmlspecialchars($fieldErrors[$field['label']]) ?></div>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+
                         <div class="btn-row">
                             <button class="btn btn-update" type="submit">
-                                Update Address
+                                UPDATE SETTINGS
                             </button>
                         </div>
                     </form>
