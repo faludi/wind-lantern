@@ -17,7 +17,7 @@ import json
 import network
 from nature_api import Client
 
-version = "1.0.35"
+version = "1.0.36"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -372,7 +372,7 @@ def scale_brightness(duty, brightness_override=None):
 
 def normalize_color_temperature(value):
     try:
-        return min(max(float(value), -5), 5)
+        return min(max(float(value), -6), 6)
     except (TypeError, ValueError):
         return 0
 

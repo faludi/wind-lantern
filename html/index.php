@@ -57,10 +57,10 @@ $settingsFields = [
     ],
     'color_temperature' => [
         'label' => 'Color Temperature',
-        'hint' => 'Integer, -5 to 5',
+        'hint' => 'Integer, -6 to 6',
         'type' => 'int',
-        'min' => -5,
-        'max' => 5,
+        'min' => -6,
+        'max' => 6,
         'default' => 0,
     ],
     'flicker_intensity' => [
