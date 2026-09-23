@@ -160,7 +160,10 @@ try {
                         $changes[] = "Address: {$lantern['address']} -> $address";
                     }
                     foreach ($numericValues as $key => $value) {
-                        if ((string)$value !== (string)$lantern[$key]) {
+                            $hasChanged = $settingsFields[$key]['type'] === 'float'
+                                ? (float)$value !== (float)$lantern[$key]
+                                : (int)$value !== (int)$lantern[$key];
+                            if ($hasChanged) {
                             $changes[] = "{$settingsFields[$key]['label']}: {$lantern[$key]} -> $value";
                         }
                     }
