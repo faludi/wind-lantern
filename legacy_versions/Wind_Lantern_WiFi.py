@@ -28,7 +28,7 @@ password = secrets.WIFI_PASSWORD  # your WiFi password
 address = "350 5th Avenue, New York, NY"
 latitude = 40.7484773
 longitude = -73.9881643
-settings_file_url = "http://shinyshape.com/windlantern/wind_lantern_settings.json"
+settings_endpoint = "http://shinyshape.com/windlantern/wind_lantern_settings.json"
 
 red_pin = 5
 green_pin = 6
@@ -150,7 +150,7 @@ def open_config():
         print("Creating configuration file.")
         try:
             with open("config.json", "w") as f:
-                config = {"address": "350 5th Avenue, New York, NY", "latitude": 40.7484773, "longitude": -73.9881643, "setttings_file_url": "http://shinyshape.com/windlantern/wind_lantern_settings.json"}
+                config = {"address": "350 5th Avenue, New York, NY", "latitude": 40.7484773, "longitude": -73.9881643, "settings_endpoint": "http://shinyshape.com/windlantern/wind_lantern_settings.json"}
                 json_string = json.dumps(config)
                 # print(config)
                 f.write(json_string)
@@ -166,14 +166,14 @@ def save_config():
             if (config.get('address') == address and
                 config.get('latitude') == latitude and
                 config.get('longitude') == longitude and
-                config.get('settings_file_url') == settings_file_url):
+                config.get('settings_endpoint') == settings_endpoint):
                 print("Configuration unchanged, not saving.")
                 return
     except Exception as e:
         print("Error reading config for comparison:", e)
     try:
         with open("config.json", "w") as f:
-            config = {"address": address, "latitude": latitude, "longitude": longitude, "settings_file_url": settings_file_url}
+            config = {"address": address, "latitude": latitude, "longitude": longitude, "settings_endpoint": settings_endpoint}
             json_string = json.dumps(config)
             # print(config)
             f.write(json_string)
@@ -229,7 +229,7 @@ def fetch_location_from_address(address):
     
 async def update_location():
     global address, latitude, longitude, set
-    location = fetch_address(settings_file_url)
+    location = fetch_address(settings_endpoint)
     if location is not None:
         address = location.get('address')
         print("Using Address:", address)
@@ -349,7 +349,7 @@ wind_manager = WindManager()
 
 async def main():
     wdt.feed()
-    global address, latitude, longitude, settings_file_url
+    global address, latitude, longitude, settings_endpoint
     connection = False
     connection_timeout = 10
     settings = open_config()
@@ -357,7 +357,7 @@ async def main():
         address = settings.get('address', address)
         latitude = settings.get('latitude', latitude)
         longitude = settings.get('longitude', longitude)
-        settings_file_url = settings.get('settings_file_url', settings_file_url)
+        settings_endpoint = settings.get('settings_endpoint', settings_endpoint)
     while not connection:
             connection = connect_to_wifi()
             connection_timeout -= 1

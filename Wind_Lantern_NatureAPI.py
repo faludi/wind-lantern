@@ -40,7 +40,6 @@ address = "350 5th Avenue, New York, NY"
 latitude = 40.7484773
 longitude = -73.9881643
 settings_endpoint = "https://shinyshape.com/windlantern/lantern_checkin.php"
-settings_file_url = settings_endpoint
 lantern_mac = None
 day_brightness = 100
 night_brightness = 20
@@ -166,7 +165,7 @@ def open_config():
         print("Creating configuration file.")
         try:
             with open("config.json", "w") as f:
-                config = {"address": "350 5th Avenue, New York, NY", "latitude": 40.7484773, "longitude": -73.9881643, "settings_file_url": "http://shinyshape.com/windlantern/wind_lantern_settings.json", "lantern_brightness": 100, "night_brightness": 20, "night_start": 22, "night_end": 8, "color_temperature": 0, "flicker_intensity": 1.0}
+                config = {"address": "350 5th Avenue, New York, NY", "latitude": 40.7484773, "longitude": -73.9881643, "settings_endpoint": "http://shinyshape.com/windlantern/wind_lantern_settings.json", "lantern_brightness": 100, "night_brightness": 20, "night_start": 22, "night_end": 8, "color_temperature": 0, "flicker_intensity": 1.0}
                 json_string = json.dumps(config)
                 # print(config)
                 f.write(json_string)
@@ -182,7 +181,7 @@ def save_config():
             if (config.get('address') == address and
                 config.get('latitude') == latitude and
                 config.get('longitude') == longitude and
-                config.get('settings_file_url') == settings_file_url and
+                config.get('settings_endpoint') == settings_endpoint and
                 config.get('lantern_brightness') == day_brightness and
                 config.get('night_brightness') == night_brightness and
                 config.get('night_start') == night_start_localtime and
@@ -195,7 +194,7 @@ def save_config():
         print("Error reading config for comparison:", e)
     try:
         with open("config.json", "w") as f:
-            config = {"address": address, "latitude": latitude, "longitude": longitude, "settings_file_url": settings_file_url, "lantern_brightness": day_brightness, "night_brightness": night_brightness, "night_start": night_start_localtime, "night_end": night_end_localtime, "color_temperature": color_temperature, "flicker_intensity": flicker_intensity}
+            config = {"address": address, "latitude": latitude, "longitude": longitude, "settings_endpoint": settings_endpoint, "lantern_brightness": day_brightness, "night_brightness": night_brightness, "night_start": night_start_localtime, "night_end": night_end_localtime, "color_temperature": color_temperature, "flicker_intensity": flicker_intensity}
             json_string = json.dumps(config)
             # print(config)
             f.write(json_string)
@@ -225,9 +224,9 @@ def fetch_address(url):
 
     
 async def update_settings():
-    global address, latitude, longitude, settings_file_url
+    global address, latitude, longitude, settings_endpoint
     global day_brightness, night_brightness, night_start_localtime, night_end_localtime, color_temperature, flicker_intensity
-    settings = fetch_address(settings_file_url)
+    settings = fetch_address(settings_endpoint)
     if settings is not None:
         address = settings.get('address', address)
         print("Using Address:", address)
@@ -471,13 +470,13 @@ wind_manager = WindManager(flicker_intensity)
 
 async def main():
     wdt.feed()
-    global address, latitude, longitude, settings_file_url, lantern_mac, day_brightness, night_brightness, night_start_localtime, night_end_localtime, color_temperature, flicker_intensity, night_mode_current, night_mode_target, night_mode_fade_from, night_mode_fade_to, night_mode_fade_start, initial_time_sync_complete
+    global address, latitude, longitude, settings_endpoint, lantern_mac, day_brightness, night_brightness, night_start_localtime, night_end_localtime, color_temperature, flicker_intensity, night_mode_current, night_mode_target, night_mode_fade_from, night_mode_fade_to, night_mode_fade_start, initial_time_sync_complete
     settings = open_config()
     if settings is not None:
         address = settings.get('address', address)
         latitude = settings.get('latitude', latitude)
         longitude = settings.get('longitude', longitude)
-        settings_file_url = settings.get('settings_file_url', settings_file_url)
+        settings_endpoint = settings.get('settings_endpoint', settings_endpoint)
         day_brightness = normalize_brightness(
             settings.get('lantern_brightness', day_brightness)
         )
@@ -510,7 +509,7 @@ async def main():
         reset()
 
     lantern_mac = get_lantern_mac()
-    settings_file_url = get_settings_url()
+    settings_endpoint = get_settings_url()
     print('Lantern MAC:', lantern_mac)
 
     if address:
