@@ -19,7 +19,7 @@ $fieldErrors = [];
 $settingsFields = [
     'address' => [
         'label' => 'Address',
-        'hint' => 'Text, up to 1024 characters',
+        'hint' => 'Text, up to 1024 characters. (Optionally lat/long, eg: 40.749284, -73.985607)',
         'type' => 'string',
         'default' => '',
     ],
