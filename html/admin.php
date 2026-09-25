@@ -8,6 +8,7 @@ session_set_cookie_params([
     'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
 ]);
 session_start();
+enforce_session_timeout();
 
 $errors = [];
 $success = null;
@@ -45,6 +46,7 @@ try {
                 $_SESSION['user_id'] = (int)$pdo->lastInsertId();
                 $_SESSION['username'] = $adminUsername;
                 $_SESSION['is_admin'] = true;
+                $_SESSION['last_activity'] = time();
                 redirect_to('admin.php');
             }
         } else {

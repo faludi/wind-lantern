@@ -8,6 +8,7 @@ session_set_cookie_params([
     'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
 ]);
 session_start();
+enforce_session_timeout();
 
 $errors = [];
 $successMessage = null;
@@ -117,6 +118,7 @@ try {
             $_SESSION['user_id'] = (int)$user['id'];
             $_SESSION['username'] = $user['username'];
             $_SESSION['is_admin'] = (bool)$user['is_admin'];
+            $_SESSION['last_activity'] = time();
             redirect_to('index.php');
         }
     }
@@ -829,7 +831,7 @@ textarea:focus {
                         These settings apply to your lantern and always override anything stored on the device.
                     </div>
 
-                    <form method="post" class="settings-form">
+                    <form method="post" class="settings-form"<?php if ($currentUser['is_admin']): ?> data-original-settings-endpoint="<?= htmlspecialchars((string)$data['settings_endpoint'], ENT_QUOTES, 'UTF-8') ?>"<?php endif; ?>>
                         <input type="hidden" name="lantern_id" value="<?= $lantern ? (int)$lantern['id'] : 0 ?>">
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
 
@@ -938,5 +940,20 @@ textarea:focus {
     </div>
 </div>
 <div class="tatami-stripes"></div>
+<script>
+document.querySelectorAll('.settings-form[data-original-settings-endpoint]').forEach((form) => {
+    const endpointField = form.querySelector('[name="settings_endpoint"]');
+    if (!endpointField) return;
+
+    form.addEventListener('submit', (event) => {
+        const originalEndpoint = form.dataset.originalSettingsEndpoint;
+        if (endpointField.value !== originalEndpoint && !window.confirm(
+            `Change the Settings Endpoint to:\n\n${endpointField.value}\n\nContinue?`
+        )) {
+            event.preventDefault();
+        }
+    });
+});
+</script>
 </body>
 </html>

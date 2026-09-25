@@ -47,6 +47,22 @@ function require_login(): array {
     ];
 }
 
+function enforce_session_timeout(): void {
+    if (empty($_SESSION['user_id'])) {
+        return;
+    }
+
+    $now = time();
+    $lastActivity = $_SESSION['last_activity'] ?? $now;
+    if (!is_numeric($lastActivity) || $now - (int)$lastActivity >= 10800) {
+        $_SESSION = [];
+        session_destroy();
+        return;
+    }
+
+    $_SESSION['last_activity'] = $now;
+}
+
 function csrf_token(): string {
     if (empty($_SESSION['csrf_token'])) {
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
