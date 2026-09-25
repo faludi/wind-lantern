@@ -19,7 +19,7 @@ $fieldErrors = [];
 $settingsFields = [
     'address' => [
         'label' => 'Address',
-        'hint' => 'Text, up to 1024 characters. (Optionally lat/long, eg: 40.749284, -73.985607)',
+        'hint' => 'Text, up to 1024 characters. (Optionally lat/long, eg: "40.749284, -73.985607")',
         'type' => 'string',
         'default' => '',
     ],
@@ -57,7 +57,7 @@ $settingsFields = [
     ],
     'color_temperature' => [
         'label' => 'Color Temperature',
-        'hint' => 'Integer, -10 to 10, default 0',
+        'hint' => 'Integer, -10 to 10, yellow to red, default 0',
         'type' => 'int',
         'min' => -10,
         'max' => 10,
@@ -65,7 +65,7 @@ $settingsFields = [
     ],
     'flicker_intensity' => [
         'label' => 'Flicker Intensity',
-        'hint' => 'Decimal, 0 to 20, default 1',
+        'hint' => 'Decimal, 0 to 20 multiplier, default 1',
         'type' => 'float',
         'min' => 0,
         'max' => 20,
@@ -109,10 +109,10 @@ try {
 
     if (!empty($_SESSION['user_id'])) {
         $currentUser = require_login();
-        $statement = $currentUser['is_admin']
-            ? $pdo->query("SELECT $settingsColumns FROM lanterns ORDER BY id")
-            : $pdo->prepare("SELECT $settingsColumns FROM lanterns WHERE user_id = :user_id ORDER BY id");
-        if ($statement instanceof PDOStatement) {
+        if ($currentUser['is_admin']) {
+            $statement = $pdo->query("SELECT $settingsColumns FROM lanterns ORDER BY id");
+        } else {
+            $statement = $pdo->prepare("SELECT $settingsColumns FROM lanterns WHERE user_id = :user_id ORDER BY id");
             $statement->execute(['user_id' => $currentUser['id']]);
         }
         $lanterns = $statement->fetchAll();

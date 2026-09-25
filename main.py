@@ -17,7 +17,7 @@ import json
 import network
 from nature_api import Client
 
-version = "1.0.37"
+version = "1.0.39"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -40,6 +40,7 @@ address = "350 5th Avenue, New York, NY"
 latitude = 40.7484773
 longitude = -73.9881643
 settings_endpoint = "https://shinyshape.com/windlantern/lantern_checkin.php"
+settings_update_interval = 15 * 60  # 15 minutes in seconds
 lantern_mac = None
 day_brightness = 100
 night_brightness = 20
@@ -66,7 +67,6 @@ blue_pin = 7
 red_pin_2 = 8
 green_pin_2 = 9
 blue_pin_2 = 10
-LED = Pin("LED", Pin.OUT)      # digital output for status LED
 
 GUST_INTERVAL_LOW = 15000  # 15 seconds
 GUST_INTERVAL_HIGH = 40000  # 40 seconds
@@ -75,13 +75,6 @@ GUST_LENGTH_HIGH = 15000  # 15 seconds
 WIND_FACTOR_K = 0.03 # how strongly the wind factor is pulled towards the center value
 # A gentle breeze should have the most effect, and higher winds should have less effect to prevent the lantern from flickering too wildly in strong winds. 
 WIND_FACTOR_CENTER = 6 # increase wind effect below this speed, decrease effect above this speed.
-
-errors = {
-    'wifi_connection': True,
-    'weather_fetch': False,
-    'config_fetch': False,
-    'location_fetch': False
-}
 
 terminateThread = False
 
@@ -111,7 +104,6 @@ blue_pwm_2.duty(100)
 def connect_to_wifi():
     wdt.feed()
     connection_success = nature_client.connect_wifi()
-    errors['wifi_connection'] = not connection_success
     return connection_success
 
 def get_lantern_mac():
@@ -138,9 +130,7 @@ def fetch_weather_data():
         wdt.feed()
         forecast = nature_client.get_weather("current", "wind_speed_10m,wind_gusts_10m", forecast_days=1, expiry=300)
         if not forecast or forecast.get('wind_speed_10m') is None:
-            errors['weather_fetch'] = True
             return None
-        errors['weather_fetch'] = False
         timestamp = f"{time.gmtime()[0]:04}-{time.gmtime()[1]:02}-{time.gmtime()[2]:02}T{time.gmtime()[3]:02}:{time.gmtime()[4]:02}"
         return {
             'current': {
@@ -151,7 +141,6 @@ def fetch_weather_data():
         }
     except Exception as e:
         print('Error fetching weather data:', e)
-        errors['weather_fetch'] = True
         return None
     
 def open_config():
@@ -165,7 +154,7 @@ def open_config():
         print("Creating configuration file.")
         try:
             with open("config.json", "w") as f:
-                config = {"address": "350 5th Avenue, New York, NY", "latitude": 40.7484773, "longitude": -73.9881643, "settings_endpoint": "http://shinyshape.com/windlantern/wind_lantern_settings.json", "lantern_brightness": 100, "night_brightness": 20, "night_start": 22, "night_end": 8, "color_temperature": 0, "flicker_intensity": 1.0}
+                config = {"address": "350 5th Avenue, New York, NY", "latitude": 40.7484773, "longitude": -73.9881643, "settings_endpoint": "https://shinyshape.com/windlantern/lantern_checkin.php", "lantern_brightness": 100, "night_brightness": 20, "night_start": 22, "night_end": 8, "color_temperature": 0, "flicker_intensity": 1.0}
                 json_string = json.dumps(config)
                 # print(config)
                 f.write(json_string)
@@ -215,18 +204,16 @@ def fetch_address(url):
         config_raw = response.json()
         # Print results
         print('Configuration: ', config_raw)
-        errors['config_fetch'] = False
         return config_raw
     except Exception as e:
         print('Error fetching settings:', e)
-        errors['config_fetch'] = True
         return None
 
     
 async def update_settings():
     global address, latitude, longitude, settings_endpoint
     global day_brightness, night_brightness, night_start_localtime, night_end_localtime, color_temperature, flicker_intensity
-    settings = fetch_address(settings_endpoint)
+    settings = fetch_address(get_settings_url())
     if settings is not None:
         address = settings.get('address', address)
         print("Using Address:", address)
@@ -244,7 +231,6 @@ async def update_settings():
                 if client_location:
                     latitude = float(client_location['latitude'])
                     longitude = float(client_location['longitude'])
-                    errors['location_fetch'] = False
                     try:
                         nature_client.set_timezone_from_location()
                     except Exception as e:
@@ -253,32 +239,13 @@ async def update_settings():
                     raise ValueError('Location lookup returned no coordinates')
             except Exception as e:
                 print('Error setting location:', e)
-                errors['location_fetch'] = True
         save_config()
     else:
         print("Using default settings")
-        errors['location_fetch'] = True
 
-async def error_led(milliseconds):
-    # bit one is wifi, bit two is weather fetch, bit three is config fetch, bit four is location fetch
-    # for example if config fetch and location fetch failed, blinks = 0b1100 = 12
-    global errors
+async def wait_with_watchdog(milliseconds):
     start_time = time.ticks_ms()
-    while time.ticks_ms() - start_time < milliseconds:
-        count = 0
-        blinks = 0
-        for error in errors.values():
-            if error:
-                blinks = blinks | 1 << count
-            count += 1
-        if blinks != 0:
-            for i in range(blinks):
-                wdt.feed()
-                LED.on()
-                await asyncio.sleep(0.3)
-                LED.off()
-                await asyncio.sleep(0.3)
-            LED.off()
+    while time.ticks_diff(time.ticks_ms(), start_time) < milliseconds:
         wdt.feed()
         await asyncio.sleep_ms(1000)
 
@@ -509,7 +476,7 @@ async def main():
         reset()
 
     lantern_mac = get_lantern_mac()
-    settings_endpoint = get_settings_url()
+    # settings_endpoint = get_settings_url()
     print('Lantern MAC:', lantern_mac)
 
     if address:
@@ -556,8 +523,7 @@ async def main():
                 print('No weather data available')
         except Exception as e:
             print('Error fetching weather data:', e)
-        await error_led(15*60*1000)
-        # await asyncio.sleep_ms(15*60*1000)  # Read every 15 minutes
+        await wait_with_watchdog(settings_update_interval * 1000)
 
 # Create an Event Loop
 wdt = WDT(timeout=8388)  # 8-second watchdog timer

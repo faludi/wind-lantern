@@ -13,6 +13,10 @@ $errors = [];
 $success = null;
 $pdo = null;
 $hasUsers = true;
+$users = [];
+$lanterns = [];
+$selectedUser = null;
+$showLanternCreation = false;
 
 try {
     $pdo = db();
@@ -26,9 +30,9 @@ try {
             verify_csrf();
         }
 
-        $adminUsername = trim((string)($_POST['admin_username'] ?? ''));
-        $adminPassword = (string)($_POST['admin_password'] ?? '');
         if (!$hasUsers) {
+            $adminUsername = trim((string)($_POST['admin_username'] ?? ''));
+            $adminPassword = (string)($_POST['admin_password'] ?? '');
             if ($adminUsername === '' || strlen($adminPassword) < 12) {
                 $errors[] = 'The administrator username is required and the password must be at least 12 characters.';
             } else {
@@ -44,29 +48,73 @@ try {
                 redirect_to('admin.php');
             }
         } else {
-            $mac = normalize_mac((string)($_POST['mac_address'] ?? ''));
-            $address = trim((string)($_POST['address'] ?? ''));
-            $username = trim((string)($_POST['username'] ?? ''));
-            $password = (string)($_POST['password'] ?? '');
-            if ($mac === null) $errors[] = 'Enter a valid 12-digit lantern MAC address.';
-            if ($address === '' || strlen($address) > 1024) $errors[] = 'Enter an address up to 1024 characters.';
-            if ($username === '') $errors[] = 'Enter a username for the lantern owner.';
-            if (strlen($password) < 12) $errors[] = 'The lantern owner password must be at least 12 characters.';
+            $action = (string)($_POST['action'] ?? 'create_lantern');
+            if ($action === 'create_lantern') {
+                $mac = normalize_mac((string)($_POST['mac_address'] ?? ''));
+                $address = trim((string)($_POST['address'] ?? ''));
+                $username = trim((string)($_POST['username'] ?? ''));
+                $password = (string)($_POST['password'] ?? '');
+                if ($mac === null) $errors[] = 'Enter a valid 12-digit lantern MAC address.';
+                if ($address === '' || strlen($address) > 1024) $errors[] = 'Enter an address up to 1024 characters.';
+                if ($username === '' || strlen($username) > 100) $errors[] = 'Enter an owner username up to 100 characters.';
+                if (strlen($password) < 12) $errors[] = 'The lantern owner password must be at least 12 characters.';
 
-            if (!$errors) {
-                $pdo->beginTransaction();
-                $statement = $pdo->prepare('INSERT INTO users (username, password_hash, is_admin) VALUES (:username, :password_hash, 0)');
-                $statement->execute([
-                    'username' => $username,
-                    'password_hash' => password_hash($password, PASSWORD_DEFAULT),
-                ]);
-                $ownerId = (int)$pdo->lastInsertId();
-                $statement = $pdo->prepare('INSERT INTO lanterns (mac_address, user_id, address) VALUES (:mac, :user_id, :address)');
-                $statement->execute(['mac' => $mac, 'user_id' => $ownerId, 'address' => $address]);
-                $pdo->commit();
-                $success = 'Lantern account created.';
+                if (!$errors) {
+                    $pdo->beginTransaction();
+                    $statement = $pdo->prepare('INSERT INTO users (username, password_hash, is_admin) VALUES (:username, :password_hash, 0)');
+                    $statement->execute([
+                        'username' => $username,
+                        'password_hash' => password_hash($password, PASSWORD_DEFAULT),
+                    ]);
+                    $ownerId = (int)$pdo->lastInsertId();
+                    $statement = $pdo->prepare('INSERT INTO lanterns (mac_address, user_id, address) VALUES (:mac, :user_id, :address)');
+                    $statement->execute(['mac' => $mac, 'user_id' => $ownerId, 'address' => $address]);
+                    $pdo->commit();
+                    $success = 'Lantern account created.';
+                }
+            } elseif ($action === 'update_user') {
+                $userId = filter_var($_POST['user_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                $username = trim((string)($_POST['username'] ?? ''));
+                $password = (string)($_POST['password'] ?? '');
+                if ($userId === false) $errors[] = 'User not found.';
+                if ($username === '' || strlen($username) > 100) $errors[] = 'Enter a username up to 100 characters.';
+                if ($password !== '' && strlen($password) < 12) $errors[] = 'A replacement password must be at least 12 characters.';
+                if (!$errors) {
+                    $sql = $password === ''
+                        ? 'UPDATE users SET username = :username WHERE id = :id'
+                        : 'UPDATE users SET username = :username, password_hash = :password_hash WHERE id = :id';
+                    $statement = $pdo->prepare($sql);
+                    $params = ['username' => $username, 'id' => $userId];
+                    if ($password !== '') $params['password_hash'] = password_hash($password, PASSWORD_DEFAULT);
+                    $statement->execute($params);
+                    if ((int)($_SESSION['user_id'] ?? 0) === (int)$userId) {
+                        $_SESSION['username'] = $username;
+                    }
+                    $success = 'User updated.';
+                }
+            } else {
+                $errors[] = 'Unknown administration action.';
             }
         }
+    }
+
+    if ($hasUsers) {
+        $users = $pdo->query('SELECT id, username, is_admin, created_at FROM users ORDER BY is_admin DESC, id')->fetchAll();
+        $lanterns = $pdo->query(
+            'SELECT lanterns.id, lanterns.mac_address, lanterns.user_id, lanterns.address, lanterns.created_at, users.username AS owner_username
+             FROM lanterns JOIN users ON users.id = lanterns.user_id ORDER BY lanterns.id'
+        )->fetchAll();
+        $selectedUserId = filter_var($_GET['user'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($selectedUserId !== false) {
+            foreach ($users as $user) {
+                if ((int)$user['id'] === $selectedUserId) {
+                    $selectedUser = $user;
+                    break;
+                }
+            }
+            if ($selectedUser === null) $errors[] = 'User not found.';
+        }
+        $showLanternCreation = ($_GET['create_lantern'] ?? '') === '1';
     }
 } catch (Throwable $error) {
     if ($pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
@@ -90,9 +138,13 @@ body { font-family: system-ui, sans-serif; max-width: 720px; margin: 3rem auto; 
 main { background: #fffaf1; padding: 2rem; border: 1px solid #cbbda8; border-radius: 8px; }
 label { display: block; margin-top: 1rem; font-weight: 600; }
 input { width: 100%; box-sizing: border-box; padding: .7rem; margin-top: .35rem; }
+select { width: 100%; box-sizing: border-box; padding: .7rem; margin-top: .35rem; }
 button { margin-top: 1.25rem; padding: .7rem 1rem; cursor: pointer; }
 .error { color: #8b2020; }.success { color: #176b3a; }
 a { color: #155d70; }
+table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+th, td { padding: .75rem 0; border-bottom: 1px solid #cbbda8; text-align: left; vertical-align: top; }
+small { color: #645a50; }
 </style>
 </head>
 <body>
@@ -111,9 +163,25 @@ a { color: #155d70; }
 </form>
 <?php else: ?>
 <p><a href="index.php">Back to dashboard</a> | <a href="index.php?logout=1">Log out</a></p>
+<?php if ($selectedUser): ?>
+<p><a href="admin.php">Back to users and lanterns</a></p>
+<h2>Edit user</h2>
+<form method="post" action="admin.php?user=<?= (int)$selectedUser['id'] ?>">
+<input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+<input type="hidden" name="action" value="update_user">
+<input type="hidden" name="user_id" value="<?= (int)$selectedUser['id'] ?>">
+<label for="username">Username</label>
+<input id="username" name="username" value="<?= htmlspecialchars($selectedUser['username']) ?>" maxlength="100" required autocomplete="username">
+<label for="password">Replacement password <small>(leave blank to keep current password)</small></label>
+<input id="password" name="password" type="password" minlength="12" autocomplete="new-password">
+<button type="submit">Update user</button>
+</form>
+<?php elseif ($showLanternCreation): ?>
+<p><a href="admin.php">Back to users and lanterns</a></p>
 <h2>Add a wind lantern</h2>
 <form method="post">
 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+<input type="hidden" name="action" value="create_lantern">
 <label for="mac_address">Lantern MAC address</label>
 <input id="mac_address" name="mac_address" placeholder="590E72AC9387" required>
 <label for="address">Initial location address</label>
@@ -124,6 +192,44 @@ a { color: #155d70; }
 <input id="password" name="password" type="password" minlength="12" required autocomplete="new-password">
 <button type="submit">Create lantern account</button>
 </form>
+<?php else: ?>
+<p><a href="admin.php?create_lantern=1">Add a wind lantern</a></p>
+<h2>Users</h2>
+<?php if (!$users): ?>
+<p>No users found.</p>
+<?php else: ?>
+<table>
+<thead><tr><th>User</th><th>Role</th><th>Created</th></tr></thead>
+<tbody>
+<?php foreach ($users as $user): ?>
+<tr>
+<td><a href="admin.php?user=<?= (int)$user['id'] ?>"><?= htmlspecialchars($user['username']) ?></a></td>
+<td><?= $user['is_admin'] ? 'Superuser' : 'Lantern owner' ?></td>
+<td><?= htmlspecialchars($user['created_at']) ?></td>
+</tr>
+<?php endforeach; ?>
+</tbody>
+</table>
+<?php endif; ?>
+
+<h2>Lanterns</h2>
+<?php if (!$lanterns): ?>
+<p>No lanterns found.</p>
+<?php else: ?>
+<table>
+<thead><tr><th>MAC address</th><th>Owner</th><th>Created</th></tr></thead>
+<tbody>
+<?php foreach ($lanterns as $lantern): ?>
+<tr>
+<td><a href="index.php?lantern=<?= (int)$lantern['id'] ?>"><?= htmlspecialchars($lantern['mac_address']) ?></a></td>
+<td><?= htmlspecialchars($lantern['owner_username']) ?></td>
+<td><?= htmlspecialchars($lantern['created_at']) ?></td>
+</tr>
+<?php endforeach; ?>
+</tbody>
+</table>
+<?php endif; ?>
+<?php endif; ?>
 <?php endif; ?>
 </main>
 </body>
