@@ -17,7 +17,7 @@ import json
 import network
 from nature_api import Client
 
-version = "1.0.39"
+version = "1.0.41"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -40,7 +40,7 @@ address = "350 5th Avenue, New York, NY"
 latitude = 40.7484773
 longitude = -73.9881643
 settings_endpoint = "https://shinyshape.com/windlantern/lantern_checkin.php"
-settings_update_interval = 15 * 60  # 15 minutes in seconds
+settings_update_interval = 15  # minutes
 lantern_mac = None
 day_brightness = 100
 night_brightness = 20
@@ -154,7 +154,7 @@ def open_config():
         print("Creating configuration file.")
         try:
             with open("config.json", "w") as f:
-                config = {"address": "350 5th Avenue, New York, NY", "latitude": 40.7484773, "longitude": -73.9881643, "settings_endpoint": "https://shinyshape.com/windlantern/lantern_checkin.php", "lantern_brightness": 100, "night_brightness": 20, "night_start": 22, "night_end": 8, "color_temperature": 0, "flicker_intensity": 1.0}
+                config = {"address": "350 5th Avenue, New York, NY", "latitude": 40.7484773, "longitude": -73.9881643, "settings_endpoint": "https://shinyshape.com/windlantern/lantern_checkin.php", "settings_update_interval": 15, "lantern_brightness": 100, "night_brightness": 20, "night_start": 22, "night_end": 8, "color_temperature": 0, "flicker_intensity": 1.0}
                 json_string = json.dumps(config)
                 # print(config)
                 f.write(json_string)
@@ -171,6 +171,7 @@ def save_config():
                 config.get('latitude') == latitude and
                 config.get('longitude') == longitude and
                 config.get('settings_endpoint') == settings_endpoint and
+                config.get('settings_update_interval') == settings_update_interval and
                 config.get('lantern_brightness') == day_brightness and
                 config.get('night_brightness') == night_brightness and
                 config.get('night_start') == night_start_localtime and
@@ -183,7 +184,7 @@ def save_config():
         print("Error reading config for comparison:", e)
     try:
         with open("config.json", "w") as f:
-            config = {"address": address, "latitude": latitude, "longitude": longitude, "settings_endpoint": settings_endpoint, "lantern_brightness": day_brightness, "night_brightness": night_brightness, "night_start": night_start_localtime, "night_end": night_end_localtime, "color_temperature": color_temperature, "flicker_intensity": flicker_intensity}
+            config = {"address": address, "latitude": latitude, "longitude": longitude, "settings_endpoint": settings_endpoint, "settings_update_interval": settings_update_interval, "lantern_brightness": day_brightness, "night_brightness": night_brightness, "night_start": night_start_localtime, "night_end": night_end_localtime, "color_temperature": color_temperature, "flicker_intensity": flicker_intensity}
             json_string = json.dumps(config)
             # print(config)
             f.write(json_string)
@@ -212,11 +213,16 @@ def fetch_address(url):
     
 async def update_settings():
     global address, latitude, longitude, settings_endpoint
+    global settings_update_interval
     global day_brightness, night_brightness, night_start_localtime, night_end_localtime, color_temperature, flicker_intensity
     settings = fetch_address(get_settings_url())
     if settings is not None:
         address = settings.get('address', address)
         print("Using Address:", address)
+        settings_endpoint = settings.get('settings_endpoint', settings_endpoint)
+        settings_update_interval = normalize_settings_update_interval(
+            settings.get('settings_update_interval', settings_update_interval)
+        )
         day_brightness = normalize_brightness(settings.get('lantern_brightness', day_brightness))
         night_brightness = normalize_night_brightness(settings.get('night_brightness', night_brightness))
         night_start_localtime = normalize_night_hour(settings.get('night_start', night_start_localtime))
@@ -348,6 +354,15 @@ def normalize_flicker_intensity(value):
     except (TypeError, ValueError):
         return 1
 
+def normalize_settings_update_interval(value):
+    try:
+        interval = int(value)
+        if float(value) != interval:
+            return 15
+        return min(max(interval, 1), 10080)
+    except (TypeError, ValueError):
+        return 15
+
 def normalize_night_brightness(value):
     try:
         return min(max(float(value), 0), 100)
@@ -437,13 +452,16 @@ wind_manager = WindManager(flicker_intensity)
 
 async def main():
     wdt.feed()
-    global address, latitude, longitude, settings_endpoint, lantern_mac, day_brightness, night_brightness, night_start_localtime, night_end_localtime, color_temperature, flicker_intensity, night_mode_current, night_mode_target, night_mode_fade_from, night_mode_fade_to, night_mode_fade_start, initial_time_sync_complete
+    global address, latitude, longitude, settings_endpoint, settings_update_interval, lantern_mac, day_brightness, night_brightness, night_start_localtime, night_end_localtime, color_temperature, flicker_intensity, night_mode_current, night_mode_target, night_mode_fade_from, night_mode_fade_to, night_mode_fade_start, initial_time_sync_complete
     settings = open_config()
     if settings is not None:
         address = settings.get('address', address)
         latitude = settings.get('latitude', latitude)
         longitude = settings.get('longitude', longitude)
         settings_endpoint = settings.get('settings_endpoint', settings_endpoint)
+        settings_update_interval = normalize_settings_update_interval(
+            settings.get('settings_update_interval', settings_update_interval)
+        )
         day_brightness = normalize_brightness(
             settings.get('lantern_brightness', day_brightness)
         )
@@ -523,7 +541,7 @@ async def main():
                 print('No weather data available')
         except Exception as e:
             print('Error fetching weather data:', e)
-        await wait_with_watchdog(settings_update_interval * 1000)
+        await wait_with_watchdog(settings_update_interval *60 * 1000)
 
 # Create an Event Loop
 wdt = WDT(timeout=8388)  # 8-second watchdog timer

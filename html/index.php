@@ -23,6 +23,20 @@ $settingsFields = [
         'type' => 'string',
         'default' => '',
     ],
+    'settings_endpoint' => [
+        'label' => 'Settings Endpoint',
+        'hint' => 'HTTP or HTTPS URL used to retrieve online settings.',
+        'type' => 'url',
+        'default' => 'https://shinyshape.com/windlantern/lantern_checkin.php',
+    ],
+    'settings_update_interval' => [
+        'label' => 'Settings Update Interval',
+        'hint' => 'Integer, 1 to 10,080 minutes, default 15',
+        'type' => 'int',
+        'min' => 1,
+        'max' => 10080,
+        'default' => 15,
+    ],
     'lantern_brightness' => [
         'label' => 'Lantern Brightness',
         'hint' => 'Integer, 0 to 100, default 100',
@@ -79,7 +93,7 @@ foreach ($settingsFields as $key => $field) {
     $data[$key] = $field['default'];
 }
 
-$settingsColumns = 'id, mac_address, address, lantern_brightness, night_brightness, night_start, night_end, color_temperature, flicker_intensity';
+$settingsColumns = 'id, mac_address, address, settings_endpoint, settings_update_interval, lantern_brightness, night_brightness, night_start, night_end, color_temperature, flicker_intensity';
 
 try {
     $pdo = db();
@@ -142,16 +156,32 @@ try {
                     $fieldErrors['Address'] = 'Address must be 1024 characters or fewer.';
                 }
 
-                $numericValues = [];
+                $settingValues = [];
                 foreach ($settingsFields as $key => $field) {
                     if ($key === 'address') {
                         continue;
                     }
+                    if ($key === 'settings_endpoint' && !$currentUser['is_admin']) {
+                        $settingValues[$key] = $lantern[$key];
+                        continue;
+                    }
                     $raw = (string)($_POST[$key] ?? '');
                     $data[$key] = $raw;
-                    $numericValues[$key] = $field['type'] === 'float'
-                        ? validate_float_range($raw, $field['min'], $field['max'], $field['label'], $fieldErrors)
-                        : validate_int_range($raw, (int)$field['min'], (int)$field['max'], $field['label'], $fieldErrors);
+                    if ($field['type'] === 'url') {
+                        $url = trim($raw);
+                        $parts = filter_var($url, FILTER_VALIDATE_URL) ? parse_url($url) : false;
+                        if ($parts === false || !in_array(strtolower((string)($parts['scheme'] ?? '')), ['http', 'https'], true)) {
+                            $fieldErrors[$field['label']] = 'Settings Endpoint must be a valid HTTP or HTTPS URL.';
+                            $settingValues[$key] = null;
+                        } else {
+                            $settingValues[$key] = $url;
+                            $data[$key] = $url;
+                        }
+                    } else {
+                        $settingValues[$key] = $field['type'] === 'float'
+                            ? validate_float_range($raw, $field['min'], $field['max'], $field['label'], $fieldErrors)
+                            : validate_int_range($raw, (int)$field['min'], (int)$field['max'], $field['label'], $fieldErrors);
+                    }
                 }
 
                 if (!$fieldErrors) {
@@ -159,32 +189,39 @@ try {
                     if ($address !== (string)$lantern['address']) {
                         $changes[] = "Address: {$lantern['address']} -> $address";
                     }
-                    foreach ($numericValues as $key => $value) {
-                            $hasChanged = $settingsFields[$key]['type'] === 'float'
-                                ? (float)$value !== (float)$lantern[$key]
-                                : (int)$value !== (int)$lantern[$key];
-                            if ($hasChanged) {
+                    foreach ($settingValues as $key => $value) {
+                        if ($settingsFields[$key]['type'] === 'url') {
+                            $hasChanged = $value !== (string)$lantern[$key];
+                        } elseif ($settingsFields[$key]['type'] === 'float') {
+                            $hasChanged = (float)$value !== (float)$lantern[$key];
+                        } else {
+                            $hasChanged = (int)$value !== (int)$lantern[$key];
+                        }
+                        if ($hasChanged) {
                             $changes[] = "{$settingsFields[$key]['label']}: {$lantern[$key]} -> $value";
                         }
                     }
 
                     $statement = $pdo->prepare(
-                        'UPDATE lanterns SET address = :address, lantern_brightness = :lantern_brightness,
+                        'UPDATE lanterns SET address = :address, settings_endpoint = :settings_endpoint,
+                         settings_update_interval = :settings_update_interval, lantern_brightness = :lantern_brightness,
                          night_brightness = :night_brightness, night_start = :night_start, night_end = :night_end,
                          color_temperature = :color_temperature, flicker_intensity = :flicker_intensity
                          WHERE id = :id'
                     );
                     $statement->execute([
                         'address' => $address,
-                        'lantern_brightness' => $numericValues['lantern_brightness'],
-                        'night_brightness' => $numericValues['night_brightness'],
-                        'night_start' => $numericValues['night_start'],
-                        'night_end' => $numericValues['night_end'],
-                        'color_temperature' => $numericValues['color_temperature'],
-                        'flicker_intensity' => $numericValues['flicker_intensity'],
+                        'settings_endpoint' => $settingValues['settings_endpoint'],
+                        'settings_update_interval' => $settingValues['settings_update_interval'],
+                        'lantern_brightness' => $settingValues['lantern_brightness'],
+                        'night_brightness' => $settingValues['night_brightness'],
+                        'night_start' => $settingValues['night_start'],
+                        'night_end' => $settingValues['night_end'],
+                        'color_temperature' => $settingValues['color_temperature'],
+                        'flicker_intensity' => $settingValues['flicker_intensity'],
                         'id' => $lantern['id'],
                     ]);
-                    $lantern = array_merge($lantern, ['address' => $address], $numericValues);
+                    $lantern = array_merge($lantern, ['address' => $address], $settingValues);
                     $successMessage = 'Settings updated successfully.';
                     if ($changes) {
                         @mail(
@@ -493,7 +530,8 @@ textarea:focus {
     color: #8b2020;
     margin: 2px 0 8px;
 }
-.settings-form input[type="number"] {
+.settings-form input[type="number"],
+.settings-form input[type="url"] {
     width: 100%;
     box-sizing: border-box;
     padding: 8px 10px;
@@ -504,7 +542,8 @@ textarea:focus {
     color: #4b3f33;
     font-size: 0.95rem;
 }
-.settings-form input[type="number"]:focus {
+.settings-form input[type="number"]:focus,
+.settings-form input[type="url"]:focus {
     outline: none;
     border-color: #7aa25f;
     box-shadow:
@@ -795,10 +834,18 @@ textarea:focus {
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
 
                         <?php foreach ($settingsFields as $key => $field): ?>
+                            <?php if ($key === 'settings_endpoint' && !$currentUser['is_admin']) continue; ?>
                             <label for="<?= htmlspecialchars($key) ?>"><?= htmlspecialchars($field['label']) ?></label>
                             <div class="field-hint"><?= htmlspecialchars($field['hint']) ?></div>
                             <?php if ($key === 'address'): ?>
                                 <textarea id="address" name="address"><?= htmlspecialchars((string)$data['address']) ?></textarea>
+                            <?php elseif ($field['type'] === 'url'): ?>
+                                <input
+                                    id="<?= htmlspecialchars($key) ?>"
+                                    name="<?= htmlspecialchars($key) ?>"
+                                    type="url"
+                                    maxlength="1024"
+                                    value="<?= htmlspecialchars((string)$data[$key]) ?>">
                             <?php else: ?>
                                 <input
                                     id="<?= htmlspecialchars($key) ?>"

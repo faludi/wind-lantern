@@ -3,6 +3,7 @@
     "latitude": 37.7946,
     "longitude": -122.3942,
     "settings_endpoint": "http://shinyshape.com/windlantern/wind_lantern_settings.json",
+    "settings_update_interval": 15,
     "lantern_brightness": 100,
     "night_brightness": 20,
     "night_start": 22,

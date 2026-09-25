@@ -11,6 +11,8 @@ CREATE TABLE lanterns (
     mac_address CHAR(12) NOT NULL UNIQUE,
     user_id INT UNSIGNED NOT NULL,
     address VARCHAR(1024) NOT NULL,
+    settings_endpoint VARCHAR(1024) NOT NULL DEFAULT 'https://shinyshape.com/windlantern/lantern_checkin.php',
+    settings_update_interval SMALLINT UNSIGNED NOT NULL DEFAULT 15 CHECK (settings_update_interval BETWEEN 1 AND 10080),
     lantern_brightness TINYINT UNSIGNED NOT NULL DEFAULT 100 CHECK (lantern_brightness BETWEEN 0 AND 100),
     night_brightness TINYINT UNSIGNED NOT NULL DEFAULT 20 CHECK (night_brightness BETWEEN 0 AND 100),
     night_start TINYINT UNSIGNED NOT NULL DEFAULT 22 CHECK (night_start BETWEEN 0 AND 23),

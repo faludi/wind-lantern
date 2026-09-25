@@ -14,7 +14,7 @@ if ($mac === null) {
 
 try {
     $statement = db()->prepare(
-        'SELECT address, lantern_brightness, night_brightness, night_start, night_end, color_temperature, flicker_intensity
+        'SELECT address, settings_endpoint, settings_update_interval, lantern_brightness, night_brightness, night_start, night_end, color_temperature, flicker_intensity
          FROM lanterns WHERE mac_address = :mac AND is_active = 1'
     );
     $statement->execute(['mac' => $mac]);
@@ -26,6 +26,8 @@ try {
     }
     echo json_encode([
         'address' => $lantern['address'],
+        'settings_endpoint' => $lantern['settings_endpoint'],
+        'settings_update_interval' => (int)$lantern['settings_update_interval'],
         'lantern_brightness' => (int)$lantern['lantern_brightness'],
         'night_brightness' => (int)$lantern['night_brightness'],
         'night_start' => (int)$lantern['night_start'],
