@@ -20,43 +20,21 @@ $fieldErrors = [];
 $settingsFields = [
     'address' => [
         'label' => 'Address',
-        'hint' => 'Text, up to 1024 characters. (Optionally lat/long, eg: "40.749284, -73.985607")',
+        'hint' => 'Examples: "350 5th Ave, New York, NY" or "40.749284, -73.985607")',
         'type' => 'string',
         'default' => '',
     ],
-    'settings_endpoint' => [
-        'label' => 'Settings Endpoint',
-        'hint' => 'HTTP or HTTPS URL used to retrieve online settings.',
-        'type' => 'url',
-        'default' => 'https://shinyshape.com/windlantern/lantern_checkin.php',
-    ],
-    'settings_update_interval' => [
-        'label' => 'Settings Update Interval',
-        'hint' => 'Integer, 1 to 10,080 minutes, default 15',
-        'type' => 'int',
-        'min' => 1,
-        'max' => 10080,
-        'default' => 15,
-    ],
     'lantern_brightness' => [
         'label' => 'Lantern Brightness',
-        'hint' => 'Integer, 0 to 100, default 100',
+        'hint' => 'Percent of full brightness, 0 to 100, default 100',
         'type' => 'int',
         'min' => 0,
         'max' => 100,
         'default' => 100,
     ],
-    'night_brightness' => [
-        'label' => 'Night Brightness',
-        'hint' => 'Integer, 0 to 100, default 20',
-        'type' => 'int',
-        'min' => 0,
-        'max' => 100,
-        'default' => 20,
-    ],
     'night_start' => [
         'label' => 'Night Start',
-        'hint' => 'Integer, 0 to 23 (hour of day), default 22',
+        'hint' => 'Hour when night mode begins.',
         'type' => 'int',
         'min' => 0,
         'max' => 23,
@@ -64,15 +42,23 @@ $settingsFields = [
     ],
     'night_end' => [
         'label' => 'Night End',
-        'hint' => 'Integer, 0 to 23 (hour of day)',
+        'hint' => 'Hour when night mode ends.',
         'type' => 'int',
         'min' => 0,
         'max' => 23,
         'default' => 8,
     ],
+    'night_brightness' => [
+        'label' => 'Night Brightness',
+        'hint' => 'Percent of full brightness at night, 0 to 100, default 20',
+        'type' => 'int',
+        'min' => 0,
+        'max' => 100,
+        'default' => 20,
+    ],
     'color_temperature' => [
         'label' => 'Color Temperature',
-        'hint' => 'Integer, -10 to 10, yellow to red, default 0',
+        'hint' => 'Yellow to red, default 0 for neutral',
         'type' => 'int',
         'min' => -10,
         'max' => 10,
@@ -80,14 +66,30 @@ $settingsFields = [
     ],
     'flicker_intensity' => [
         'label' => 'Flicker Intensity',
-        'hint' => 'Decimal, 0 to 20 multiplier, default 1',
+        'hint' => 'Sensitivity to wind, 0 to 5 multiplier, default 1',
         'type' => 'float',
         'min' => 0,
-        'max' => 20,
+        'max' => 5,
         'step' => 0.1,
         'default' => 1.0,
     ],
+    'settings_update_interval' => [
+        'label' => 'Settings Update Interval',
+        'hint' => 'Frequency of settings updates, 5 to 180 minutes, default 15',
+        'type' => 'int',
+        'min' => 1,
+        'max' => 10080,
+        'default' => 15,
+    ],
+    'settings_endpoint' => [
+        'label' => 'Settings Endpoint',
+        'hint' => 'HTTP or HTTPS URL used to retrieve online settings.',
+        'type' => 'url',
+        'default' => 'https://shinyshape.com/windlantern/lantern_checkin.php',
+    ],
 ];
+
+$sliderFields = ['lantern_brightness', 'night_brightness', 'settings_update_interval', 'color_temperature'];
 
 $data = [];
 foreach ($settingsFields as $key => $field) {
@@ -533,7 +535,8 @@ textarea:focus {
     margin: 2px 0 8px;
 }
 .settings-form input[type="number"],
-.settings-form input[type="url"] {
+.settings-form input[type="url"],
+.settings-form select {
     width: 100%;
     box-sizing: border-box;
     padding: 8px 10px;
@@ -544,8 +547,31 @@ textarea:focus {
     color: #4b3f33;
     font-size: 0.95rem;
 }
+.settings-form .night-hours-controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+.settings-form .night-hours-controls select {
+    width: 100%;
+}
+.settings-form .range-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 5.5rem;
+    align-items: center;
+    gap: 12px;
+}
+.settings-form input[type="range"] {
+    width: 100%;
+    margin: 0;
+    accent-color: #7b5e3b;
+}
+.settings-form .range-controls input[type="number"] {
+    width: 100%;
+}
 .settings-form input[type="number"]:focus,
-.settings-form input[type="url"]:focus {
+.settings-form input[type="url"]:focus,
+.settings-form select:focus {
     outline: none;
     border-color: #7aa25f;
     box-shadow:
@@ -589,6 +615,23 @@ textarea:focus {
     box-shadow:
         0 6px 14px rgba(138,168,98,0.6),
         0 1px 0 rgba(255,255,255,0.7) inset;
+}
+.btn-default-settings {
+    margin-left: 12px;
+    padding: 5px 0;
+    border: 0;
+    border-radius: 0;
+    color: #857664;
+    background: transparent;
+    box-shadow: none;
+    font-size: 0.76rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+}
+.btn-default-settings:hover {
+    color: #5a4631;
+    text-decoration: underline;
 }
 
 /* Refresh = cool stream water */
@@ -837,6 +880,29 @@ textarea:focus {
 
                         <?php foreach ($settingsFields as $key => $field): ?>
                             <?php if ($key === 'settings_endpoint' && !$currentUser['is_admin']) continue; ?>
+                            <?php if ($key === 'night_end') continue; ?>
+                            <?php if ($key === 'night_start'): ?>
+                                <div class="night-hours-controls">
+                                    <?php foreach (['night_start', 'night_end'] as $hourKey): ?>
+                                        <div>
+                                            <label for="<?= htmlspecialchars($hourKey) ?>"><?= htmlspecialchars($settingsFields[$hourKey]['label']) ?></label>
+                                            <div class="field-hint"><?= htmlspecialchars($settingsFields[$hourKey]['hint']) ?></div>
+                                            <select
+                                                id="<?= htmlspecialchars($hourKey) ?>"
+                                                name="<?= htmlspecialchars($hourKey) ?>"
+                                                data-default="<?= htmlspecialchars((string)$settingsFields[$hourKey]['default'], ENT_QUOTES, 'UTF-8') ?>">
+                                                <?php for ($hour = 0; $hour <= 23; $hour++): ?>
+                                                    <option value="<?= $hour ?>" <?= (int)$data[$hourKey] === $hour ? 'selected' : '' ?>><?= sprintf('%02d:00', $hour) ?></option>
+                                                <?php endfor; ?>
+                                            </select>
+                                            <?php if (!empty($fieldErrors[$settingsFields[$hourKey]['label']])): ?>
+                                                <div class="field-error"><?= htmlspecialchars($fieldErrors[$settingsFields[$hourKey]['label']]) ?></div>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                                <?php continue; ?>
+                            <?php endif; ?>
                             <label for="<?= htmlspecialchars($key) ?>"><?= htmlspecialchars($field['label']) ?></label>
                             <div class="field-hint"><?= htmlspecialchars($field['hint']) ?></div>
                             <?php if ($key === 'address'): ?>
@@ -847,7 +913,33 @@ textarea:focus {
                                     name="<?= htmlspecialchars($key) ?>"
                                     type="url"
                                     maxlength="1024"
+                                    data-default="<?= htmlspecialchars((string)$field['default'], ENT_QUOTES, 'UTF-8') ?>"
                                     value="<?= htmlspecialchars((string)$data[$key]) ?>">
+                            <?php elseif (in_array($key, $sliderFields, true)): ?>
+                                <?php
+                                $sliderMin = $key === 'settings_update_interval' ? 5 : $field['min'];
+                                $sliderMax = $key === 'settings_update_interval' ? 180 : $field['max'];
+                                ?>
+                                <div class="range-controls">
+                                    <input
+                                        id="<?= htmlspecialchars($key) ?>_slider"
+                                        data-slider-for="<?= htmlspecialchars($key) ?>"
+                                        type="range"
+                                        min="<?= htmlspecialchars((string)$sliderMin) ?>"
+                                        max="<?= htmlspecialchars((string)$sliderMax) ?>"
+                                        step="1"
+                                        value="<?= htmlspecialchars((string)$data[$key]) ?>"
+                                        aria-label="<?= htmlspecialchars($field['label']) ?> slider">
+                                    <input
+                                        id="<?= htmlspecialchars($key) ?>"
+                                        name="<?= htmlspecialchars($key) ?>"
+                                        type="number"
+                                        step="1"
+                                        min="<?= htmlspecialchars((string)$field['min']) ?>"
+                                        max="<?= htmlspecialchars((string)$field['max']) ?>"
+                                        data-default="<?= htmlspecialchars((string)$field['default'], ENT_QUOTES, 'UTF-8') ?>"
+                                        value="<?= htmlspecialchars((string)$data[$key]) ?>">
+                                </div>
                             <?php else: ?>
                                 <input
                                     id="<?= htmlspecialchars($key) ?>"
@@ -856,6 +948,7 @@ textarea:focus {
                                     step="<?= $field['type'] === 'float' ? '0.1' : '1' ?>"
                                     min="<?= htmlspecialchars((string)$field['min']) ?>"
                                     max="<?= htmlspecialchars((string)$field['max']) ?>"
+                                    data-default="<?= htmlspecialchars((string)$field['default'], ENT_QUOTES, 'UTF-8') ?>"
                                     value="<?= htmlspecialchars((string)$data[$key]) ?>">
                             <?php endif; ?>
                             <?php if (!empty($fieldErrors[$field['label']])): ?>
@@ -866,6 +959,9 @@ textarea:focus {
                         <div class="btn-row">
                             <button class="btn btn-update" type="submit">
                                 UPDATE SETTINGS
+                            </button>
+                            <button class="btn btn-default-settings" type="button" data-reset-defaults>
+                                Use Default Settings
                             </button>
                         </div>
                     </form>
@@ -941,11 +1037,68 @@ textarea:focus {
 </div>
 <div class="tatami-stripes"></div>
 <script>
+document.querySelectorAll('[data-slider-for]').forEach((slider) => {
+    const numberField = document.getElementById(slider.dataset.sliderFor);
+    if (!numberField) return;
+
+    slider.addEventListener('input', () => {
+        numberField.value = slider.value;
+    });
+    numberField.addEventListener('input', () => {
+        if (numberField.value !== '' && numberField.checkValidity()) {
+            slider.value = numberField.value;
+        }
+    });
+});
+
+document.querySelectorAll('.settings-form [data-reset-defaults]').forEach((button) => {
+    const form = button.closest('form');
+    if (!form) return;
+
+    button.addEventListener('click', () => {
+        const resetFields = [...form.querySelectorAll('[data-default]')];
+        const originalValues = new Map(
+            [...form.querySelectorAll('input, textarea, select')].map((field) => [field, field.value])
+        );
+
+        resetFields.forEach((field) => {
+            field.value = field.dataset.default;
+            const slider = form.querySelector(`[data-slider-for="${field.id}"]`);
+            if (slider) slider.value = field.value;
+        });
+
+        const summary = resetFields.map((field) => {
+            const label = form.querySelector(`label[for="${field.id}"]`);
+            return `${label ? label.textContent.trim() : field.name}: ${field.value}`;
+        });
+        const address = form.querySelector('[name="address"]');
+        if (address) summary.push(`Address (unchanged): ${address.value}`);
+
+        const confirmed = window.confirm(
+            `Save these default settings?\n\n${summary.join('\n')}\n\nChoose OK to save, or Cancel to restore the current settings.`
+        );
+
+        if (!confirmed) {
+            originalValues.forEach((value, field) => {
+                field.value = value;
+            });
+            return;
+        }
+
+        form.dataset.defaultSettingsConfirmed = 'true';
+        form.requestSubmit();
+    });
+});
+
 document.querySelectorAll('.settings-form[data-original-settings-endpoint]').forEach((form) => {
     const endpointField = form.querySelector('[name="settings_endpoint"]');
     if (!endpointField) return;
 
     form.addEventListener('submit', (event) => {
+        if (form.dataset.defaultSettingsConfirmed === 'true') {
+            delete form.dataset.defaultSettingsConfirmed;
+            return;
+        }
         const originalEndpoint = form.dataset.originalSettingsEndpoint;
         if (endpointField.value !== originalEndpoint && !window.confirm(
             `Change the Settings Endpoint to:\n\n${endpointField.value}\n\nContinue?`

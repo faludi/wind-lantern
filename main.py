@@ -17,7 +17,7 @@ import json
 import network
 from nature_api import Client
 
-version = "1.0.41"
+version = "1.0.43"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -26,15 +26,36 @@ time.sleep(2) # allow usb connection on startup
 ssid = secrets.WIFI_SSID  # your SSID name
 password = secrets.WIFI_PASSWORD  # your WiFi password
 
-wdt = WDT(timeout=8388)  # 8-second watchdog timer
+REBOOT_STATE_FILE = "reboot_state.json"
+REBOOT_BACKOFF_BASE_SECONDS = 5
+REBOOT_BACKOFF_MAX_SECONDS = 300  # cap at 5 minutes
 
-nature_client = Client(ssid, password, debug_mode=False, watchdog=wdt)
-ipgeolocation_key = getattr(secrets, 'IPGEOLOCATION_API_KEY', None)
-if ipgeolocation_key:
+def _load_reboot_count():
     try:
-        nature_client.set_api_key('ipgeolocation', ipgeolocation_key)
+        with open(REBOOT_STATE_FILE, 'r') as f:
+            return int(json.loads(f.read()).get('count', 0))
+    except Exception:
+        return 0
+
+def _save_reboot_count(count):
+    try:
+        with open(REBOOT_STATE_FILE, 'w') as f:
+            f.write(json.dumps({'count': count}))
     except Exception as e:
-        print('Warning: failed to set ipgeolocation API key:', e)
+        print('Warning: could not persist reboot count:', e)
+
+def apply_reboot_backoff():
+    # Reboot count survives resets via flash; used to space out repeated crash/watchdog reboots.
+    count = _load_reboot_count()
+    if count > 0:
+        delay = min(REBOOT_BACKOFF_BASE_SECONDS * (2 ** (count - 1)), REBOOT_BACKOFF_MAX_SECONDS)
+        delay += random.uniform(0, delay * 0.1)  # jitter so multiple lanterns don't retry in lockstep
+        print(f"Detected {count} consecutive reboot(s); waiting {delay:.1f}s before retrying...")
+        time.sleep(delay)
+    _save_reboot_count(count + 1)
+
+def clear_reboot_backoff():
+    _save_reboot_count(0)
 
 address = "350 5th Avenue, New York, NY"
 latitude = 40.7484773
@@ -100,6 +121,23 @@ green_pwm_2.duty(100)
 blue_pwm_2 = Pulse(Pin(blue_pin_2))
 blue_pwm_2.freq(300)
 blue_pwm_2.duty(100)
+
+red_pwm.duty(3)
+green_pwm.duty(70)
+red_pwm_2.duty(3)
+green_pwm_2.duty(70)
+
+apply_reboot_backoff()
+
+wdt = WDT(timeout=8388)  # 8-second watchdog timer
+
+nature_client = Client(ssid, password, debug_mode=False, watchdog=wdt)
+ipgeolocation_key = getattr(secrets, 'IPGEOLOCATION_API_KEY', None)
+if ipgeolocation_key:
+    try:
+        nature_client.set_api_key('ipgeolocation', ipgeolocation_key)
+    except Exception as e:
+        print('Warning: failed to set ipgeolocation API key:', e)
 
 def connect_to_wifi():
     wdt.feed()
@@ -350,7 +388,7 @@ def normalize_color_temperature(value):
 
 def normalize_flicker_intensity(value):
     try:
-        return min(max(float(value), 0), 20)
+        return min(max(float(value), 0), 5)
     except (TypeError, ValueError):
         return 1
 
@@ -508,6 +546,7 @@ async def main():
     initial_time_sync_complete = True
 
     next_sync = time.time()
+    first_cycle_complete = False
     while True:
         wdt.feed()
         if not nature_client.wifi_connected:
@@ -541,10 +580,13 @@ async def main():
                 print('No weather data available')
         except Exception as e:
             print('Error fetching weather data:', e)
+        if not first_cycle_complete:
+            # Made it through one full cycle without a watchdog/crash reboot; stop backing off.
+            clear_reboot_backoff()
+            first_cycle_complete = True
         await wait_with_watchdog(settings_update_interval *60 * 1000)
 
 # Create an Event Loop
-wdt = WDT(timeout=8388)  # 8-second watchdog timer
 loop = asyncio.get_event_loop()
 # Create a task to run the main function
 loop.create_task(main())
