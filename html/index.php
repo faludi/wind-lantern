@@ -147,7 +147,35 @@ try {
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             verify_csrf();
-            if (!$lantern || (int)($_POST['lantern_id'] ?? 0) !== (int)$lantern['id']) {
+            if (($_POST['action'] ?? '') === 'change_password') {
+                $currentPassword = (string)($_POST['current_password'] ?? '');
+                $newPassword = (string)($_POST['new_password'] ?? '');
+                $confirmPassword = (string)($_POST['confirm_password'] ?? '');
+
+                if ($newPassword === '' || strlen($newPassword) < 12) {
+                    $errors[] = 'The new password must be at least 12 characters.';
+                }
+                if ($newPassword !== $confirmPassword) {
+                    $errors[] = 'The new password and confirmation do not match.';
+                }
+
+                if (!$errors) {
+                    $statement = $pdo->prepare('SELECT password_hash FROM users WHERE id = :id');
+                    $statement->execute(['id' => $currentUser['id']]);
+                    $account = $statement->fetch();
+                    if (!$account || !password_verify($currentPassword, (string)$account['password_hash'])) {
+                        $errors[] = 'The current password is incorrect.';
+                    } else {
+                        $statement = $pdo->prepare('UPDATE users SET password_hash = :password_hash WHERE id = :id');
+                        $statement->execute([
+                            'password_hash' => password_hash($newPassword, PASSWORD_DEFAULT),
+                            'id' => $currentUser['id'],
+                        ]);
+                        session_regenerate_id(true);
+                        $successMessage = 'Password changed successfully.';
+                    }
+                }
+            } elseif (!$lantern || (int)($_POST['lantern_id'] ?? 0) !== (int)$lantern['id']) {
                 $errors[] = 'Lantern not found.';
             } else {
                 $rawAddress = (string)($_POST['address'] ?? '');
@@ -247,7 +275,7 @@ try {
 
 $csrf_token = csrf_token();
 
-if ($lantern && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+if ($lantern && ($_SERVER['REQUEST_METHOD'] !== 'POST' || ($_POST['action'] ?? '') === 'change_password')) {
     foreach ($settingsFields as $key => $field) {
         $data[$key] = $lantern[$key];
     }
@@ -439,7 +467,7 @@ body {
 
 .header-subtitle {
     margin-top: 4px;
-    margin-bottom: 32px;
+    margin-bottom: 48px;
     font-size: 0.9rem;
     color: #756750;
 }
@@ -486,10 +514,97 @@ body {
     text-transform: uppercase;
 }
 
+.login-form {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.login-form label {
+    margin: 8px 0 4px;
+    font-weight: 600;
+    color: #5a4631;
+}
+
+.login-form input {
+    width: 50%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid rgba(176,150,110,0.7);
+    border-radius: 8px;
+    background: #fff;
+    color: #4b3f33;
+    font-size: 0.95rem;
+}
+
 .section-caption {
     font-size: 0.84rem;
     color: #857664;
     margin-bottom: 8px;
+}
+
+.account-controls {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 4px 10px;
+    margin-bottom: 8px;
+    position: relative;
+    text-align: right;
+    z-index: 2;
+}
+
+.account-controls details {
+    position: relative;
+}
+
+.account-controls summary {
+    cursor: pointer;
+    list-style: none;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.account-controls summary::-webkit-details-marker {
+    display: none;
+}
+
+.password-change-form {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: min(320px, calc(100vw - 48px));
+    padding: 14px;
+    box-sizing: border-box;
+    background: #f8f3e9;
+    border: 1px solid rgba(188,164,124,0.6);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.16);
+    text-align: left;
+    z-index: 3;
+}
+
+.password-change-form label {
+    display: block;
+    margin: 8px 0 4px;
+    color: #5a4631;
+    font-size: 0.84rem;
+    font-weight: 600;
+}
+
+.password-change-form input[type="password"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid rgba(176,150,110,0.7);
+    border-radius: 8px;
+    background: #fff;
+    color: #4b3f33;
+    font-size: 0.95rem;
 }
 
 /* Address textarea */
@@ -733,6 +848,9 @@ textarea:focus {
 
 /* Responsive tweaks */
 @media (max-width: 720px) {
+    .login-form input {
+        width: 100%;
+    }
     .container {
         padding: 16px 14px 18px;
         border-width: 6px;
@@ -814,7 +932,7 @@ textarea:focus {
             <?php endif; ?>
             <section class="section">
                 <h2 class="section-title">Wind Lantern Login</h2>
-                <form method="post">
+                <form method="post" class="login-form">
                     <label for="username">Username</label>
                     <input id="username" name="username" type="text" autocomplete="username" required>
                     <label for="password">Password</label>
@@ -843,13 +961,30 @@ textarea:focus {
             </div>
         <?php endif; ?>
 
-        <div class="section-caption">
-            <br>
+        <div class="account-controls section-caption">
             Signed in as <?= htmlspecialchars($currentUser['username']) ?>.
             <a href="index.php?logout=1">Log out</a>
             <?php if ($currentUser['is_admin']): ?>
-                | <a href="admin.php">Admin setup</a>
+                <span aria-hidden="true">|</span>
+                <a href="admin.php">Admin setup</a>
             <?php endif; ?>
+            <span aria-hidden="true">|</span>
+            <details>
+                <summary>Change Password</summary>
+                <form method="post" class="password-change-form">
+                    <input type="hidden" name="action" value="change_password">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
+                    <label for="current_password">Current password</label>
+                    <input id="current_password" name="current_password" type="password" autocomplete="current-password" required>
+                    <label for="new_password">New password</label>
+                    <input id="new_password" name="new_password" type="password" autocomplete="new-password" minlength="12" required>
+                    <label for="confirm_password">Confirm new password</label>
+                    <input id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" minlength="12" required>
+                    <div class="btn-row">
+                        <button class="btn btn-update" type="submit">Change Password</button>
+                    </div>
+                </form>
+            </details>
         </div>
 
         <?php if (count($lanterns) > 1): ?>
