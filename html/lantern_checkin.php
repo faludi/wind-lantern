@@ -13,7 +13,8 @@ if ($mac === null) {
 }
 
 try {
-    $statement = db()->prepare(
+    $pdo = db();
+    $statement = $pdo->prepare(
         'SELECT address, settings_endpoint, settings_update_interval, lantern_brightness, night_brightness, night_start, night_end, color_temperature, flicker_intensity
          FROM lanterns WHERE mac_address = :mac AND is_active = 1'
     );
@@ -24,6 +25,10 @@ try {
         echo json_encode(['error' => 'Lantern not found.']);
         exit;
     }
+
+    $statement = $pdo->prepare('UPDATE lanterns SET last_checkin = NOW() WHERE mac_address = :mac');
+    $statement->execute(['mac' => $mac]);
+
     echo json_encode([
         'address' => $lantern['address'],
         'settings_endpoint' => $lantern['settings_endpoint'],

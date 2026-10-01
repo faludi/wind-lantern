@@ -96,7 +96,7 @@ foreach ($settingsFields as $key => $field) {
     $data[$key] = $field['default'];
 }
 
-$settingsColumns = 'id, mac_address, address, settings_endpoint, settings_update_interval, lantern_brightness, night_brightness, night_start, night_end, color_temperature, flicker_intensity';
+$settingsColumns = 'id, mac_address, address, settings_endpoint, settings_update_interval, lantern_brightness, night_brightness, night_start, night_end, color_temperature, flicker_intensity, last_checkin';
 
 try {
     $pdo = db();
@@ -846,6 +846,16 @@ textarea:focus {
     margin-top: 4px;
 }
 
+/* Last check-in timestamp, styled like settings field hints */
+.checkin-note {
+    font-size: 0.78rem;
+    color: #8b7a67;
+    text-align: right;
+    margin-top: 16px;
+    position: relative;
+    z-index: 1;
+}
+
 /* Responsive tweaks */
 @media (max-width: 720px) {
     .login-form input {
@@ -1167,11 +1177,32 @@ textarea:focus {
                 </section>
             </div>
         </div>
+
+        <?php if ($lantern): ?>
+            <div class="checkin-note">
+                Lantern received settings on:
+                <?php if ($lantern['last_checkin']): ?>
+                    <span data-checkin-timestamp="<?= strtotime((string)$lantern['last_checkin']) ?>">
+                        <?= htmlspecialchars(date('M j, Y g:i A', strtotime((string)$lantern['last_checkin']))) ?>
+                    </span>
+                <?php else: ?>
+                    never
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
         <?php endif; ?>
     </div>
 </div>
 <div class="tatami-stripes"></div>
 <script>
+document.querySelectorAll('[data-checkin-timestamp]').forEach((el) => {
+    const unixSeconds = Number(el.dataset.checkinTimestamp);
+    if (!Number.isFinite(unixSeconds)) return;
+    el.textContent = new Date(unixSeconds * 1000).toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+    });
+});
+
 document.querySelectorAll('[data-slider-for]').forEach((slider) => {
     const numberField = document.getElementById(slider.dataset.sliderFor);
     if (!numberField) return;
