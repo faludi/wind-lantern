@@ -58,7 +58,7 @@ $settingsFields = [
     ],
     'color_temperature' => [
         'label' => 'Color Temperature',
-        'hint' => 'Yellow to red, default 0 for neutral',
+        'hint' => 'Yellow (-10) to red (10), default 0 for neutral',
         'type' => 'int',
         'min' => -10,
         'max' => 10,
@@ -96,7 +96,7 @@ foreach ($settingsFields as $key => $field) {
     $data[$key] = $field['default'];
 }
 
-$settingsColumns = 'id, mac_address, address, settings_endpoint, settings_update_interval, lantern_brightness, night_brightness, night_start, night_end, color_temperature, flicker_intensity, last_checkin';
+$settingsColumns = 'id, mac_address, address, settings_endpoint, settings_update_interval, lantern_brightness, night_brightness, night_start, night_end, color_temperature, flicker_intensity, last_checkin, firmware_version';
 
 try {
     $pdo = db();
@@ -856,6 +856,10 @@ textarea:focus {
     z-index: 1;
 }
 
+.checkin-note + .checkin-note {
+    margin-top: 4px;
+}
+
 /* Responsive tweaks */
 @media (max-width: 720px) {
     .login-form input {
@@ -1016,7 +1020,7 @@ textarea:focus {
                 <section class="section">
                     <h2 class="section-title">Lantern Settings</h2>
                     <div class="section-caption">
-                        These settings apply to your lantern and always override anything stored on the device.
+                        Wind Lanterns update their settings at regular intervals.
                     </div>
 
                     <form method="post" class="settings-form"<?php if ($currentUser['is_admin']): ?> data-original-settings-endpoint="<?= htmlspecialchars((string)$data['settings_endpoint'], ENT_QUOTES, 'UTF-8') ?>"<?php endif; ?>>
@@ -1188,6 +1192,10 @@ textarea:focus {
                 <?php else: ?>
                     never
                 <?php endif; ?>
+            </div>
+            <div class="checkin-note">
+                Firmware version:
+                <?= $lantern['firmware_version'] ? htmlspecialchars((string)$lantern['firmware_version']) : 'unknown' ?>
             </div>
         <?php endif; ?>
         <?php endif; ?>

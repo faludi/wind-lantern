@@ -26,8 +26,9 @@ try {
         exit;
     }
 
-    $statement = $pdo->prepare('UPDATE lanterns SET last_checkin = NOW() WHERE mac_address = :mac');
-    $statement->execute(['mac' => $mac]);
+    $version = substr(trim((string)($_GET['version'] ?? '')), 0, 32);
+    $statement = $pdo->prepare('UPDATE lanterns SET last_checkin = NOW(), firmware_version = COALESCE(:version, firmware_version) WHERE mac_address = :mac');
+    $statement->execute(['mac' => $mac, 'version' => $version !== '' ? $version : null]);
 
     echo json_encode([
         'address' => $lantern['address'],

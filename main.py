@@ -17,7 +17,7 @@ import json
 import network
 from nature_api import Client
 
-version = "1.0.43"
+version = "1.0.47"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -27,8 +27,8 @@ ssid = secrets.WIFI_SSID  # your SSID name
 password = secrets.WIFI_PASSWORD  # your WiFi password
 
 REBOOT_STATE_FILE = "reboot_state.json"
-REBOOT_BACKOFF_BASE_SECONDS = 5
-REBOOT_BACKOFF_MAX_SECONDS = 300  # cap at 5 minutes
+REBOOT_BACKOFF_BASE_SECONDS = 1
+REBOOT_BACKOFF_MAX_SECONDS = 900  # cap at 15 minutes
 
 def _load_reboot_count():
     try:
@@ -93,9 +93,8 @@ GUST_INTERVAL_LOW = 15000  # 15 seconds
 GUST_INTERVAL_HIGH = 40000  # 40 seconds
 GUST_LENGTH_LOW = 3000  # 3 seconds
 GUST_LENGTH_HIGH = 15000  # 15 seconds
-WIND_FACTOR_K = 0.03 # how strongly the wind factor is pulled towards the center value
-# A gentle breeze should have the most effect, and higher winds should have less effect to prevent the lantern from flickering too wildly in strong winds. 
-WIND_FACTOR_CENTER = 6 # increase wind effect below this speed, decrease effect above this speed.
+WIND_REF = 1 # wind speed that passes through unchanged; raise to boost more of the low range
+WIND_EXPONENT = 0.7 # 1.0 = no change, lower = more compression (small values boosted, large reduced)
 
 terminateThread = False
 
@@ -150,7 +149,7 @@ def get_lantern_mac():
     return ''.join('{:02X}'.format(value) for value in mac_bytes)
 
 def get_settings_url():
-    return settings_endpoint + '?mac=' + get_lantern_mac()
+    return settings_endpoint + '?mac=' + get_lantern_mac() + '&version=' + version
 
 def parse_datetime(timestamp):
     # Split the timestamp into date and time
@@ -305,22 +304,29 @@ class WindManager:
         self.gusting = True
         self.start_time = time.ticks_ms()
         self.delay = 0
+        self.initial_run = True
 
     def set_wind(self, wind_speed, wind_gusts):
         self.speed = wind_speed
         self.gusts = wind_gusts
         self._calc_wind_factor(self.speed, self.gusts)
 
-    def adjust(self, x, k=0.02, center=10):
-        return x - k * (x - center) * abs(x - center)
+    def get_wind(self):
+        if self.gusting:
+            return self.gusts
+        return self.speed
+
+    def compress(self, x, ref=WIND_REF, exponent=WIND_EXPONENT):
+        # Power curve: output equals input at ref; below ref it is boosted, above it is reduced. Never negative.
+        if x <= 0:
+            return 0
+        return ref * (x / ref) ** exponent
 
     def _calc_wind_factor(self, wind_speed, wind_gusts):
-        self.wind_factor = max((wind_speed), 0) # protect against negative wind factor
+        self.wind_factor = self.compress(wind_speed)
+        self.gust_factor = self.compress(wind_gusts)
         self.wind_factor *= self.flicker_intensity
-        self.wind_factor = self.adjust(self.wind_factor, k=0.02, center=10)
-        self.gust_factor = max((wind_gusts), 0) # protect against negative wind factor
         self.gust_factor *= self.flicker_intensity
-        self.gust_factor = self.adjust(self.gust_factor, k=0.02, center=10)
 
     def _calc_gusting(self):
         if time.ticks_ms() - self.start_time > self.delay:
@@ -339,34 +345,48 @@ class WindManager:
     
     def get_wind_factor(self):
         self._calc_gusting()
+        difference = ( self.gust_factor - self.wind_factor )
+        percent = max(( 1- (time.ticks_ms() - self.start_time) / self.gust_ramp ), 0) 
         if self.gusting:
+            self.initial_run = False
             # gust, reduced by the full difference with wind at first, then down to no reduction at 1/4 time
-            difference = ( self.gust_factor - self.wind_factor )
-            percent = max(( 1- (time.ticks_ms() - self.start_time) / self.gust_ramp ), 0) 
             factor = self.gust_factor - ( difference * percent )
         else:
+            if self.initial_run:
+                return self.wind_factor
             # wind, increased by the full difference with gusts at first, then down to no increase at 1/4 time
-            difference = ( self.gust_factor - self.wind_factor )
-            percent = max(( 1 - (time.ticks_ms() - self.start_time) / self.gust_ramp ), 0) 
             factor = self.wind_factor + ( difference * percent )
-        # factor = factor * random.uniform(0.85, 1.0) # add some randomness
         return factor
-    
-def red_light():
-        global wind_manager
-        brightness_level = update_night_mode_state()
-        factor = wind_manager.get_wind_factor()
-        red_pwm.duty(scale_brightness(100 - min(random.uniform(93-factor, 100), 100), brightness_level))
-        red_pwm_2.duty(scale_brightness(100 - min(random.uniform(93-factor, 100) , 100), brightness_level))
-        rand_flicker_sleep()
 
-def green_light():
-        global wind_manager
-        brightness_level = update_night_mode_state()
-        factor = wind_manager.get_wind_factor()
-        green_pwm.duty(scale_brightness(100 - min(random.uniform(29-factor-color_temperature, 30-color_temperature) ,100), brightness_level))
-        green_pwm_2.duty(scale_brightness(100 - min(random.uniform(29-factor-color_temperature, 30-color_temperature) ,100), brightness_level))
-        rand_flicker_sleep()
+    def get_intensity(self):
+        self._calc_gusting()
+        difference = ( self.gusts - self.speed )
+        percent = max(( 1 - (time.ticks_ms() - self.start_time) / self.gust_ramp ), 0)
+        if self.gusting:
+            intensity = self.get_wind() - ( difference * percent )
+        else:
+            if self.initial_run:
+                intensity = self.get_wind()
+            else:
+                intensity = self.get_wind() + ( difference * percent )
+        intensity *= self.flicker_intensity
+        return random.uniform(1-(intensity/100), 1.0)
+    
+# def red_light():
+#         global wind_manager
+#         brightness_level = update_night_mode_state()
+#         factor = wind_manager.get_wind_factor()
+#         red_pwm.duty(scale_brightness(100 - min(random.uniform(93-factor, 100), 100), brightness_level))
+#         red_pwm_2.duty(scale_brightness(100 - min(random.uniform(93-factor, 100) , 100), brightness_level))
+#         rand_flicker_sleep()
+
+# def green_light():
+#         global wind_manager
+#         brightness_level = update_night_mode_state()
+#         factor = wind_manager.get_wind_factor()
+#         green_pwm.duty(scale_brightness(100 - min(random.uniform(29-factor-color_temperature, 30-color_temperature) ,100), brightness_level))
+#         green_pwm_2.duty(scale_brightness(100 - min(random.uniform(29-factor-color_temperature, 30-color_temperature) ,100), brightness_level))
+#         rand_flicker_sleep()
 
 def normalize_brightness(value):
     try:
@@ -475,15 +495,35 @@ def update_night_mode_state():
 
     return night_mode_current
 
+def update_firmware():
+    import ugit
+    print("Starting safe firmware pull from GitHub...")
+    wdt.feed()
+    try:
+        ugit.safe_pull_all(user='faludi', repository='wind-lantern-firmware', branch=None, token=None,
+                        ssid=secrets.WIFI_SSID, password=secrets.WIFI_PASSWORD, ignore=['/README.md', '/LICENSE', '/secrets.py', '/.gitignore', '/reboot_state.json'],
+                        isconnected=True, reset_after=True)
+        wdt.feed()
+        print("Safe firmware pull completed.")
+    except Exception as e:
+        print("Safe firmware pull failed:", e)
+
 def rand_flicker_sleep():
     time.sleep(random.randint(3, 10) / 100.0)
 
 def light_candle():
+    global wind_manager
     gc.collect()
     print("Starting candle thread")
     while terminateThread == False:
-        red_light()
-        green_light()
+        factor = wind_manager.get_wind_factor()
+        intensity = wind_manager.get_intensity()
+        brightness_level = update_night_mode_state()
+        red_pwm.duty(scale_brightness(100 - min(random.uniform(95-factor, 100) * intensity, 100), brightness_level))
+        red_pwm_2.duty(scale_brightness(100 - min(random.uniform(95-factor, 100) * intensity, 100), brightness_level))
+        green_pwm.duty(scale_brightness(100 - min(random.uniform(31-factor-color_temperature, 32-color_temperature) * intensity, 100), brightness_level))
+        green_pwm_2.duty(scale_brightness(100 - min(random.uniform(31-factor-color_temperature, 32-color_temperature) * intensity, 100), brightness_level))
+        rand_flicker_sleep()
         time.sleep_ms(1)
 
 wind_manager = WindManager(flicker_intensity)
