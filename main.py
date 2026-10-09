@@ -17,7 +17,7 @@ import json
 import network
 from nature_api import Client
 
-version = "1.0.47"
+version = "1.0.48"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -283,6 +283,8 @@ async def update_settings():
             except Exception as e:
                 print('Error setting location:', e)
         save_config()
+        if settings.get('update_firmware') is True:
+            update_firmware()
     else:
         print("Using default settings")
 

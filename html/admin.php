@@ -94,6 +94,16 @@ try {
                     }
                     $success = 'User updated.';
                 }
+            } elseif ($action === 'set_firmware_update') {
+                $lanternId = filter_var($_POST['lantern_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                if ($lanternId === false) {
+                    $errors[] = 'Lantern not found.';
+                } else {
+                    $enabled = ($_POST['update_firmware'] ?? '') === '1' ? 1 : 0;
+                    $statement = $pdo->prepare('UPDATE lanterns SET update_firmware = :enabled WHERE id = :id');
+                    $statement->execute(['enabled' => $enabled, 'id' => $lanternId]);
+                    $success = $enabled ? 'Firmware update queued for next check-in.' : 'Firmware update cancelled.';
+                }
             } else {
                 $errors[] = 'Unknown administration action.';
             }
@@ -103,7 +113,7 @@ try {
     if ($hasUsers) {
         $users = $pdo->query('SELECT id, username, is_admin, created_at FROM users ORDER BY is_admin DESC, id')->fetchAll();
         $lanterns = $pdo->query(
-            'SELECT lanterns.id, lanterns.mac_address, lanterns.user_id, lanterns.address, lanterns.created_at, users.username AS owner_username
+            'SELECT lanterns.id, lanterns.mac_address, lanterns.user_id, lanterns.address, lanterns.created_at, lanterns.update_firmware, lanterns.firmware_version, lanterns.last_checkin, users.username AS owner_username
              FROM lanterns JOIN users ON users.id = lanterns.user_id ORDER BY lanterns.id'
         )->fetchAll();
         $selectedUserId = filter_var($_GET['user'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
@@ -219,13 +229,22 @@ small { color: #645a50; }
 <p>No lanterns found.</p>
 <?php else: ?>
 <table>
-<thead><tr><th>MAC address</th><th>Owner</th><th>Created</th></tr></thead>
+<thead><tr><th>MAC address</th><th>Owner</th><th>Firmware</th><th>Firmware update</th></tr></thead>
 <tbody>
 <?php foreach ($lanterns as $lantern): ?>
 <tr>
 <td><a href="index.php?lantern=<?= (int)$lantern['id'] ?>"><?= htmlspecialchars($lantern['mac_address']) ?></a></td>
 <td><?= htmlspecialchars($lantern['owner_username']) ?></td>
-<td><?= htmlspecialchars($lantern['created_at']) ?></td>
+<td><?= htmlspecialchars((string)($lantern['firmware_version'] ?? 'unknown')) ?></td>
+<td>
+<form method="post" action="admin.php">
+<input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+<input type="hidden" name="action" value="set_firmware_update">
+<input type="hidden" name="lantern_id" value="<?= (int)$lantern['id'] ?>">
+<input type="hidden" name="update_firmware" value="<?= $lantern['update_firmware'] ? '0' : '1' ?>">
+<button type="submit" style="margin-top:0"><?= $lantern['update_firmware'] ? 'Pending - cancel' : 'Queue update' ?></button>
+</form>
+</td>
 </tr>
 <?php endforeach; ?>
 </tbody>

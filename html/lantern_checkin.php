@@ -30,7 +30,13 @@ try {
     $statement = $pdo->prepare('UPDATE lanterns SET last_checkin = NOW(), firmware_version = COALESCE(:version, firmware_version) WHERE mac_address = :mac');
     $statement->execute(['mac' => $mac, 'version' => $version !== '' ? $version : null]);
 
+    // Atomic claim so the one-time trigger is delivered once and then cleared.
+    $statement = $pdo->prepare('UPDATE lanterns SET update_firmware = 0 WHERE mac_address = :mac AND update_firmware = 1');
+    $statement->execute(['mac' => $mac]);
+    $updateFirmware = $statement->rowCount() === 1;
+
     echo json_encode([
+        'update_firmware' => $updateFirmware,
         'address' => $lantern['address'],
         'settings_endpoint' => $lantern['settings_endpoint'],
         'settings_update_interval' => (int)$lantern['settings_update_interval'],
