@@ -113,7 +113,7 @@ try {
     if ($hasUsers) {
         $users = $pdo->query('SELECT id, username, is_admin, created_at FROM users ORDER BY is_admin DESC, id')->fetchAll();
         $lanterns = $pdo->query(
-            'SELECT lanterns.id, lanterns.mac_address, lanterns.user_id, lanterns.address, lanterns.created_at, lanterns.update_firmware, lanterns.firmware_version, lanterns.last_checkin, DATE_ADD(lanterns.last_checkin, INTERVAL lanterns.settings_update_interval MINUTE) AS next_checkin, users.username AS owner_username
+            'SELECT lanterns.id, lanterns.mac_address, lanterns.user_id, lanterns.address, lanterns.created_at, lanterns.update_firmware, lanterns.firmware_version, lanterns.last_checkin, lanterns.settings_update_interval, users.username AS owner_username
              FROM lanterns JOIN users ON users.id = lanterns.user_id ORDER BY lanterns.id'
         )->fetchAll();
         $selectedUserId = filter_var($_GET['user'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
@@ -245,7 +245,13 @@ small { color: #645a50; }
 <button type="submit" style="margin-top:0"><?= $lantern['update_firmware'] ? 'Pending - cancel' : 'Queue update' ?></button>
 </form>
 </td>
-<td><?= htmlspecialchars((string)($lantern['next_checkin'] ?? 'Not yet checked in')) ?></td>
+<?php $lastCheckin = $lantern['last_checkin'] ? strtotime((string)$lantern['last_checkin']) : false; ?>
+<?php if ($lastCheckin !== false): ?>
+<?php $nextCheckin = $lastCheckin + (int)$lantern['settings_update_interval'] * 60; ?>
+<td data-checkin-timestamp="<?= $nextCheckin ?>"><?= htmlspecialchars(date('M j, Y g:i A', $nextCheckin)) ?></td>
+<?php else: ?>
+<td>Not yet checked in</td>
+<?php endif; ?>
 </tr>
 <?php endforeach; ?>
 </tbody>
@@ -254,5 +260,14 @@ small { color: #645a50; }
 <?php endif; ?>
 <?php endif; ?>
 </main>
+<script>
+document.querySelectorAll('[data-checkin-timestamp]').forEach((el) => {
+    const unixSeconds = Number(el.dataset.checkinTimestamp);
+    if (!Number.isFinite(unixSeconds)) return;
+    el.textContent = new Date(unixSeconds * 1000).toLocaleString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+    });
+});
+</script>
 </body>
 </html>
