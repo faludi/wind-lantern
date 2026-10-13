@@ -113,7 +113,7 @@ try {
     if ($hasUsers) {
         $users = $pdo->query('SELECT id, username, is_admin, created_at FROM users ORDER BY is_admin DESC, id')->fetchAll();
         $lanterns = $pdo->query(
-            'SELECT lanterns.id, lanterns.mac_address, lanterns.user_id, lanterns.address, lanterns.created_at, lanterns.update_firmware, lanterns.firmware_version, lanterns.last_checkin, users.username AS owner_username
+            'SELECT lanterns.id, lanterns.mac_address, lanterns.user_id, lanterns.address, lanterns.created_at, lanterns.update_firmware, lanterns.firmware_version, lanterns.last_checkin, DATE_ADD(lanterns.last_checkin, INTERVAL lanterns.settings_update_interval MINUTE) AS next_checkin, users.username AS owner_username
              FROM lanterns JOIN users ON users.id = lanterns.user_id ORDER BY lanterns.id'
         )->fetchAll();
         $selectedUserId = filter_var($_GET['user'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
@@ -229,7 +229,7 @@ small { color: #645a50; }
 <p>No lanterns found.</p>
 <?php else: ?>
 <table>
-<thead><tr><th>MAC address</th><th>Owner</th><th>Firmware</th><th>Firmware update</th></tr></thead>
+<thead><tr><th>MAC address</th><th>Owner</th><th>Firmware</th><th>Firmware update</th><th>Next check-in</th></tr></thead>
 <tbody>
 <?php foreach ($lanterns as $lantern): ?>
 <tr>
@@ -245,6 +245,7 @@ small { color: #645a50; }
 <button type="submit" style="margin-top:0"><?= $lantern['update_firmware'] ? 'Pending - cancel' : 'Queue update' ?></button>
 </form>
 </td>
+<td><?= htmlspecialchars((string)($lantern['next_checkin'] ?? 'Not yet checked in')) ?></td>
 </tr>
 <?php endforeach; ?>
 </tbody>
