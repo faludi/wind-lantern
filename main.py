@@ -3,7 +3,7 @@
 # https://randomnerdtutorials.com/raspberry-pi-pico-w-wi-fi-micropython/
 # Flicker based on code from Grant Whitney
 # https://grantwinney.com/raspberry-pi-flickering-candle/
-
+# Uses ugit for version control: https://github.com/turfptax/ugit
 
 import uasyncio as asyncio
 from machine import Pin, PWM, reset, WDT
