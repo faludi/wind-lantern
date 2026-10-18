@@ -11,6 +11,7 @@ __version__ = "0.1.14"
 
 class Client:
     def __init__(self, ssid, password, debug_mode=False, watchdog=None):
+        """Initialize the client, connection settings, cache, and endpoint definitions."""
         self.ssid = ssid
         self.password = password
         self.ipgeolocation_api_key = None
@@ -52,6 +53,7 @@ class Client:
         }
 
     def connect_wifi(self, attempts_per_cycle=10, max_cycles=10):
+        """Connect to the configured Wi-Fi network, retrying until successful."""
         while max_cycles > 0:
             wlan = network.WLAN(network.STA_IF)
             wlan.active(True)
@@ -79,6 +81,7 @@ class Client:
         machine.reset()
 
     def sync_time(self, max_retries=5):
+        """Synchronize the device clock with an NTP server."""
         for _ in range(max_retries):
             try:
                 print('Syncing time via NTP...')
@@ -91,6 +94,7 @@ class Client:
         return False
     
     def get_local_timezone_offset(self):
+        """Fetch the timezone offset associated with the current public IP."""
         try:
             if self.watchdog: self.watchdog.feed()  # Feed the watchdog if configured
             response = requests.get(f"https://api.ipgeolocation.io/v3/timezone?apiKey={self.ipgeolocation_api_key}&ip=", headers=self.headers, timeout=10)
@@ -107,6 +111,7 @@ class Client:
         return 0 # if not available, assume UTC
 
     def set_timezone_from_location(self):
+        """Look up and store the UTC offset for the configured coordinates."""
         if not self.location:
             raise ValueError("Location is not set.")
         
@@ -133,6 +138,7 @@ class Client:
             return False
         
     def set_location(self, address):
+        """Resolve an address to coordinates and store both the address and location."""
         self.address = address
         url=url_encode()
         encoded_address = url.encode(address)
@@ -163,6 +169,7 @@ class Client:
             print('Error fetching location data:', e)
 
     def set_coordinates(self, latitude, longitude):
+        """Set the client's location directly from latitude and longitude."""
         self.location = {
             "latitude": latitude,
             "longitude": longitude
@@ -199,6 +206,7 @@ class Client:
         }
 
     def _normalize_parameter_list(self, parameters):
+        """Convert a comma-separated string or list into a validated parameter list."""
         if isinstance(parameters, str):
             parameters = [param.strip() for param in parameters.split(",") if param.strip()]
         if not isinstance(parameters, list):
@@ -206,6 +214,7 @@ class Client:
         return parameters
 
     def _fetch_cached_parameters(self, category, parameters, expiry):
+        """Separate cached parameter values from those that still need fetching."""
         results = {}
         params_to_fetch = []
         for param in parameters:
@@ -221,6 +230,7 @@ class Client:
         return results, params_to_fetch
 
     def _execute_request(self, url, expiry=900, cache_category=None, cache_key=None):
+        """Fetch JSON from a URL and optionally cache the response."""
         if cache_category is not None and cache_key is not None:
             cache_return = self.check_cache(cache_category, cache_key, expiry)
             if cache_return is not None and cache_return != "expired":
@@ -248,6 +258,7 @@ class Client:
         return data
 
     def _execute_parameterized_request(self, category, parameters, expiry, build_url_fn, parse_fn):
+        """Fetch uncached parameters, parse their response, and return the requested values."""
         parameters = self._normalize_parameter_list(parameters)
         single_parameter = len(parameters) == 1
         results, params_to_fetch = self._fetch_cached_parameters(category, parameters, expiry)
@@ -268,6 +279,7 @@ class Client:
         return results
 
     def _build_url_from_spec(self, spec, category, params_to_fetch, extra_opts):
+        """Build a request URL for a supported endpoint parameter style."""
         # Helper builder for simple spec styles (csv and apiKey+coords)
         lat = None
         lon = None
@@ -292,6 +304,7 @@ class Client:
         return spec.get('base')
 
     def _generic_get(self, endpoint_name, category, parameters, expiry=900, parse_fn=None, **opts):
+        """Dispatch a data request according to the selected endpoint specification."""
         spec = self._endpoint_specs.get(endpoint_name)
         if not spec:
             raise ValueError(f"Unknown endpoint: {endpoint_name}")
@@ -306,9 +319,11 @@ class Client:
 
         if style in ('csv', 'apiKey+coords'):
             def build_url_fn(params_to_fetch):
+                """Build the URL for this endpoint and set of uncached parameters."""
                 return self._build_url_from_spec(spec, category, params_to_fetch, opts)
 
             def default_parse_fn(data, params_to_fetch):
+                """Extract requested values from the response's category object."""
                 if isinstance(data, dict):
                     category_data = data.get(category)
                 else:
@@ -333,42 +348,50 @@ class Client:
         raise NotImplementedError(f"Unsupported param_style: {style}")
 
     def get_location(self):
+        """Return the configured coordinates, or None if no location is set."""
         if not self.location:
             return None
         return self.location
 
     def get_address(self):
+        """Return the address most recently supplied to set_location."""
         if not self.address:
             return None
         return self.address
     
     def get_remote_offset(self):
+        """Return the stored UTC offset in seconds."""
         return self.utc_offset
 
     
     def get_weather(self, category, parameters, forecast_days=1, expiry=900):
+        """Fetch one or more weather parameters for the configured location."""
         if not self.wifi_connected:
             raise ConnectionError("Wi-Fi is not connected.")
 
         return self._generic_get('weather', category, parameters, expiry=expiry, forecast_days=forecast_days)
     
     def get_forecast(self, category, parameters, forecast_days=1, expiry=900):
+        """Fetch weather data through the deprecated forecast method."""
         print(('"get_forecast" is deprecated, use "get_weather" instead.'))
         return self.get_weather(category, parameters, forecast_days=forecast_days, expiry=expiry)
     
     def get_marine(self, category, parameters, forecast_days=1, expiry=900):
+        """Fetch one or more marine parameters for the configured location."""
         if not self.wifi_connected:
             raise ConnectionError("Wi-Fi is not connected.")
 
         return self._generic_get('marine', category, parameters, expiry=expiry, forecast_days=forecast_days)
 
     def set_api_key(self, type, key):
+        """Store an API key for a supported service."""
         if type == "ipgeolocation":
             self.ipgeolocation_api_key = key
         else:
             raise ValueError("Unsupported API type. Currently only 'ipgeolocation' is supported.")
         
     def get_astronomy(self, category, parameter, expiry=900):
+        """Fetch astronomy data for the configured location."""
         if not self.wifi_connected:
             raise ConnectionError("Wi-Fi is not connected.")
 
@@ -379,6 +402,7 @@ class Client:
             raise ValueError("API key is required for astronomy data.")
 
         def astronomy_parser(data, params_to_fetch):
+            """Extract requested astronomy values from the service response."""
             if isinstance(data, dict):
                 category_data = data.get(category)
             else:
@@ -397,6 +421,7 @@ class Client:
         return self._generic_get('astronomy', category, parameter, expiry=expiry, parse_fn=astronomy_parser)
 
     def _request_hash(self, params):
+        """Create a stable hash for a set of earthquake query parameters."""
         if not isinstance(params, dict):
             raise ValueError("params must be a dict")
 
@@ -411,6 +436,7 @@ class Client:
         return "{:08x}".format(h)
 
     def _load_earthquake_id_map(self, filename):
+        """Load saved query-hash to earthquake-ID entries from a file."""
         mapping = {}
         try:
             with open(filename, "r") as fh:
@@ -425,6 +451,7 @@ class Client:
         return mapping
 
     def _build_usgs_url(self, params):
+        """Build a USGS query URL and its encoded query string."""
         # Build a USGS query string similar to previous implementation
         if not isinstance(params, dict):
             raise ValueError("params must be a dict of USGS query parameters")
@@ -439,6 +466,7 @@ class Client:
         return f"https://earthquake.usgs.gov/fdsnws/event/1/query?{query_string}", query_string
 
     def _save_earthquake_id_map(self, filename, mapping):
+        """Write query-hash to earthquake-ID entries to a file."""
         try:
             with open(filename, "w") as fh:
                 for hash_key, quake_id in sorted(mapping.items()):
@@ -448,6 +476,7 @@ class Client:
                 print("Error saving earthquake ID map:", e)
 
     def _get_newest_earthquake(self, quake_data):
+        """Return the newest feature in an earthquake response, if available."""
         if not isinstance(quake_data, dict):
             return None
 
@@ -471,6 +500,7 @@ class Client:
         return newest if newest is not None else features[0]
 
     def get_new_earthquake(self, params, expiry=900, state_file="earthquake_ids.txt"):
+        """Return earthquake data when a newer event appears for the query."""
         if not self.wifi_connected:
             raise ConnectionError("Wi-Fi is not connected.")
 
@@ -502,6 +532,7 @@ class Client:
         return quake_data
 
     def get_earthquakes(self, params, expiry=900):
+        """Fetch earthquake data matching the supplied USGS query parameters."""
         if not self.wifi_connected:
             raise ConnectionError("Wi-Fi is not connected.")
 
