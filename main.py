@@ -38,6 +38,7 @@ REBOOT_BACKOFF_BASE_SECONDS = 1
 REBOOT_BACKOFF_MAX_SECONDS = 900  # cap at 15 minutes
 
 def _load_reboot_count():
+    """Read the persisted consecutive-reboot count (0 if missing or unreadable)."""
     try:
         with open(REBOOT_STATE_FILE, 'r') as f:
             return int(json.loads(f.read()).get('count', 0))
@@ -45,6 +46,7 @@ def _load_reboot_count():
         return 0
 
 def _save_reboot_count(count):
+    """Persist the consecutive-reboot count to flash."""
     try:
         with open(REBOOT_STATE_FILE, 'w') as f:
             f.write(json.dumps({'count': count}))
@@ -52,6 +54,7 @@ def _save_reboot_count(count):
         print('Warning: could not persist reboot count:', e)
 
 def apply_reboot_backoff():
+    """Sleep with exponential backoff based on prior reboot count, then increment it."""
     # Reboot count survives resets via flash; used to space out repeated crash/watchdog reboots.
     count = _load_reboot_count()
     if count > 0:
@@ -62,6 +65,7 @@ def apply_reboot_backoff():
     _save_reboot_count(count + 1)
 
 def clear_reboot_backoff():
+    """Reset the reboot count after a healthy run."""
     _save_reboot_count(0)
 
 address = DEFAULT_SETTINGS["address"]
@@ -107,6 +111,7 @@ terminateThread = False
 
 class Pulse(PWM):
     def duty(self, percent_duty):
+        """Set PWM duty cycle from a 0-100 percentage."""
         return self.duty_u16(int(percent_duty/100 *65535))
     
 red_pwm = Pulse(Pin(red_pin))
@@ -146,19 +151,23 @@ if ipgeolocation_key:
         print('Warning: failed to set ipgeolocation API key:', e)
 
 def connect_to_wifi():
+    """Connect via the Nature client; returns True on success."""
     wdt.feed()
     connection_success = nature_client.connect_wifi()
     return connection_success
 
 def get_lantern_mac():
+    """Return the station MAC address as an uppercase hex string."""
     wlan = network.WLAN(network.STA_IF)
     mac_bytes = wlan.config('mac')
     return ''.join('{:02X}'.format(value) for value in mac_bytes)
 
 def get_settings_url():
+    """Build the remote settings URL identifying this lantern and firmware version."""
     return settings_endpoint + '?mac=' + get_lantern_mac() + '&version=' + version
 
 def parse_datetime(timestamp):
+    """Convert an ISO 'YYYY-MM-DDTHH:MM' string to 'MM/DD/YYYY HH:MM UTC'."""
     # Split the timestamp into date and time
     date_str, time_str = timestamp.split('T')
     # Extract year, month, day
@@ -170,6 +179,7 @@ def parse_datetime(timestamp):
     return(formatted_time)
 
 def fetch_weather_data():
+    """Fetch current wind speed/gusts (km/h); returns a dict or None on failure."""
     try:
         wdt.feed()
         forecast = nature_client.get_weather("current", "wind_speed_10m,wind_gusts_10m", forecast_days=1, expiry=300)
@@ -188,6 +198,7 @@ def fetch_weather_data():
         return None
     
 def open_config():
+    """Load normalized settings from config.json, creating it from defaults if absent."""
     try:
         with open('config.json', 'r') as f:
             config_str = f.read()
@@ -203,6 +214,7 @@ def open_config():
             print("Error storing light levels:", e)
 
 def get_current_settings():
+    """Snapshot the current settings globals as a dict."""
     return {
         "address": address,
         "latitude": latitude,
@@ -218,6 +230,7 @@ def get_current_settings():
     }
 
 def apply_settings(values, fallback=None):
+    """Normalize values (falling back to current settings) and assign them to the globals."""
     global address, latitude, longitude, settings_endpoint, settings_update_interval
     global day_brightness, night_brightness, night_start_localtime, night_end_localtime
     global color_temperature, flicker_intensity
@@ -239,6 +252,7 @@ def apply_settings(values, fallback=None):
     wind_manager.flicker_intensity = flicker_intensity
 
 def save_config():
+    """Write current settings to config.json only if they differ from the stored copy."""
     settings = get_current_settings()
     try:
         with open("config.json", "r") as f:
@@ -256,6 +270,7 @@ def save_config():
         print("Error saving config:", e)
 
 def fetch_address(url):
+    """GET a URL and return its parsed JSON, or None on error."""
     try:
         # Make GET request
         wdt.feed()
@@ -275,6 +290,7 @@ def fetch_address(url):
 
     
 async def update_settings():
+    """Pull remote settings, resolve address to coordinates/timezone, save, and optionally update firmware."""
     global latitude, longitude
     settings = fetch_address(get_settings_url())
     if settings is not None:
@@ -305,6 +321,7 @@ async def update_settings():
         print("Using default settings")
 
 async def wait_with_watchdog(milliseconds):
+    """Async sleep for the given duration while feeding the watchdog each second."""
     start_time = time.ticks_ms()
     while time.ticks_diff(time.ticks_ms(), start_time) < milliseconds:
         wdt.feed()
@@ -312,6 +329,8 @@ async def wait_with_watchdog(milliseconds):
 
 
 class WindManager:
+    """Tracks wind speed/gusts and simulates alternating gust and calm periods to drive flicker."""
+
     def __init__(self, flicker_intensity=1.0):
         self.flicker_intensity = flicker_intensity
         self.wind_factor = 0
@@ -325,11 +344,13 @@ class WindManager:
         self.initial_run = True
 
     def set_wind(self, wind_speed, wind_gusts):
+        """Store new wind readings (m/s) and recompute the flicker factors."""
         self.speed = wind_speed
         self.gusts = wind_gusts
         self._calc_wind_factor(self.speed, self.gusts)
 
     def get_wind(self):
+        """Return gust speed while gusting, otherwise steady wind speed."""
         if self.gusting:
             return self.gusts
         return self.speed
@@ -341,12 +362,14 @@ class WindManager:
         return ref * (x / ref) ** exponent
 
     def _calc_wind_factor(self, wind_speed, wind_gusts):
+        """Compress readings and scale by flicker intensity into wind/gust factors."""
         self.wind_factor = self.compress(wind_speed)
         self.gust_factor = self.compress(wind_gusts)
         self.wind_factor *= self.flicker_intensity
         self.gust_factor *= self.flicker_intensity
 
     def _calc_gusting(self):
+        """Toggle between gusting and calm states when the current period expires."""
         if time.ticks_ms() - self.start_time > self.delay:
             self.start_time = time.ticks_ms()
             self.gust_ramp = random.randint(GUST_LENGTH_LOW, GUST_LENGTH_HIGH) * 0.25
@@ -362,6 +385,7 @@ class WindManager:
         return self.wind_factor
     
     def get_wind_factor(self):
+        """Return the wind factor, smoothly ramped between wind and gust levels at state changes."""
         self._calc_gusting()
         difference = ( self.gust_factor - self.wind_factor )
         percent = max(( 1- (time.ticks_ms() - self.start_time) / self.gust_ramp ), 0) 
@@ -377,6 +401,7 @@ class WindManager:
         return factor
 
     def get_intensity(self):
+        """Return a random flicker multiplier (<=1.0) whose depth grows with ramped wind speed."""
         self._calc_gusting()
         difference = ( self.gusts - self.speed )
         percent = max(( 1 - (time.ticks_ms() - self.start_time) / self.gust_ramp ), 0)
@@ -392,12 +417,14 @@ class WindManager:
     
 
 def scale_brightness(duty, brightness_override=None):
+    """Scale an inverted (100 = off) duty value by a brightness percentage."""
     if brightness_override is None:
         brightness_override = day_brightness
     brightness_level = normalize_brightness(brightness_override)
     return 100 - ((100 - duty) * brightness_level / 100)
 
 def get_local_timezone_offset_hours():
+    """Return the cached local UTC offset in hours, refreshing hourly when online."""
     global cached_timezone_offset_hours, timezone_offset_next_refresh
     if not nature_client.wifi_connected:
         return cached_timezone_offset_hours
@@ -414,6 +441,7 @@ def get_local_timezone_offset_hours():
     return cached_timezone_offset_hours
 
 def is_night_window(local_hour, start_hour, end_hour):
+    """True if local_hour falls in [start, end), supporting windows that wrap past midnight."""
     if start_hour == end_hour:
         return False
     if start_hour < end_hour:
@@ -421,6 +449,7 @@ def is_night_window(local_hour, start_hour, end_hour):
     return local_hour >= start_hour or local_hour < end_hour
 
 def update_night_mode_state():
+    """Return current brightness, fading over 10s between day and night levels."""
     global night_mode_current, night_mode_target, night_mode_fade_from, night_mode_fade_to, night_mode_fade_start, night_mode_next_update
     if not initial_time_sync_complete:
         return day_brightness
@@ -455,6 +484,7 @@ def update_night_mode_state():
     return night_mode_current
 
 def update_firmware():
+    """Pull the latest firmware from GitHub via ugit and reset on success."""
     import ugit
     print("Starting safe firmware pull from GitHub...")
     wdt.feed()
@@ -468,9 +498,11 @@ def update_firmware():
         print("Safe firmware pull failed:", e)
 
 def rand_flicker_sleep():
+    """Sleep a random 30-100 ms between flicker updates."""
     time.sleep(random.randint(3, 10) / 100.0)
 
 def light_candle():
+    """Thread loop: drive the red/green PWM channels to simulate a wind-affected candle."""
     global wind_manager
     gc.collect()
     print("Starting candle thread")
@@ -488,6 +520,7 @@ def light_candle():
 wind_manager = WindManager(flicker_intensity)
 
 async def main():
+    """Load config, connect Wi-Fi, sync time, then periodically refresh settings, NTP, and wind data."""
     wdt.feed()
     global address, latitude, longitude, settings_endpoint, settings_update_interval, lantern_mac, day_brightness, night_brightness, night_start_localtime, night_end_localtime, color_temperature, flicker_intensity, night_mode_current, night_mode_target, night_mode_fade_from, night_mode_fade_to, night_mode_fade_start, initial_time_sync_complete
     settings = open_config()
