@@ -2,12 +2,48 @@
 
 import time
 import network
+import socket
 import requests
-from Url_encode import url_encode
+from Url_encode import url_encode, form_decode
 import machine
 import ntptime
 
-__version__ = "0.1.14"
+__version__ = "0.1.15"
+
+class WifiProvisioningError(Exception):
+    """Base class for Wi-Fi provisioning failures."""
+
+class WifiConnectError(WifiProvisioningError):
+    """The submitted Wi-Fi credentials could not establish a connection."""
+
+class WifiProvisioningTimeout(WifiProvisioningError):
+    """No valid credentials were submitted before the provisioning timeout."""
+
+_PORTAL_PAGE = (
+    '<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'
+    '<title>Device Wi-Fi Setup</title></head>'
+    '<body style="font-family:sans-serif;max-width:24em;margin:1em auto;padding:0 1em">'
+    '<h2>Wi-Fi Setup</h2>{msg}'
+    '<form method="POST" action="/save">'
+    '<p><label>Network name (SSID)<br>'
+    '<input name="ssid" list="n" maxlength="32" required value="{ssid}" style="width:100%"></label>'
+    '<datalist id="n">{opts}</datalist></p>'
+    '<p><label>Password (8-63 characters, leave blank for an open network)<br>'
+    '<input name="password" id="pw" type="password" maxlength="63" style="width:100%"></label>'
+    '<label><input type="checkbox" onclick="document.getElementById(\'pw\').type=this.checked?\'text\':\'password\'"> Show password</label></p>'
+    '<button type="submit">Connect</button></form></body></html>'
+)
+
+_MESSAGE_PAGE = (
+    '<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'
+    '<title>Device Wi-Fi Setup</title></head>'
+    '<body style="font-family:sans-serif;max-width:24em;margin:1em auto;padding:0 1em">'
+    '<h2>{title}</h2><p>{text}</p></body></html>'
+)
+
+def _html_escape(text):
+    return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace('"', "&quot;").replace("'", "&#39;"))
 
 class Client:
     def __init__(self, ssid, password, debug_mode=False, watchdog=None):
@@ -52,8 +88,12 @@ class Client:
             },
         }
 
-    def connect_wifi(self, attempts_per_cycle=10, max_cycles=10):
-        """Connect to the configured Wi-Fi network, retrying until successful."""
+    def connect_wifi(self, attempts_per_cycle=10, max_cycles=10, provision_on_failure=False):
+        """Connect to the configured Wi-Fi network, retrying until successful.
+
+        If provision_on_failure is True, a failed connection starts provision_wifi() instead of
+        resetting the device; its exceptions propagate to the caller.
+        """
         while max_cycles > 0:
             wlan = network.WLAN(network.STA_IF)
             wlan.active(True)
@@ -77,8 +117,233 @@ class Client:
                 network_info = wlan.ifconfig()
                 print('IP address:', network_info[0])
                 return True
+        if provision_on_failure:
+            self.provision_wifi()
+            return True
         print('Exceeded maximum connection attempts, resetting device...')
         machine.reset()
+
+    def provision_wifi(self, ap_ssid="NatureAPI-Setup", ap_password=None, timeout=300, max_attempts=1, on_status=None):
+        """Start an access point with a Wi-Fi setup page and return (ssid, password) once verified.
+
+        Raises WifiConnectError after max_attempts failed connections, or WifiProvisioningTimeout
+        after timeout seconds. on_status(state) receives: ap_started, connecting, failed, success, timeout.
+        """
+        if ap_password is not None and not 8 <= len(ap_password) <= 63:
+            raise ValueError("ap_password must be 8-63 characters")
+
+        def notify(state):
+            if on_status:
+                try:
+                    on_status(state)
+                except Exception as e:
+                    print("on_status callback error:", e)
+
+        def feed():
+            if self.watchdog: self.watchdog.feed()
+
+        sta = network.WLAN(network.STA_IF)
+        sta.active(True)
+        ssids = self._scan_ssids(sta)
+        ap = network.WLAN(network.AP_IF)
+        http = dns = None
+        connected = False
+        attempts = 0
+        error = ""
+        ssid_hint = ""
+        deadline = time.ticks_add(time.ticks_ms(), int(timeout * 1000))
+        try:
+            if ap_password:
+                ap.config(essid=ap_ssid, security=4194308, password=ap_password)  # WPA2 AES PSK
+            else:
+                ap.config(essid=ap_ssid, security=0)  # the port otherwise defaults to a built-in WPA2 password
+            ap.active(True)
+            while not ap.active():
+                feed()
+                time.sleep_ms(100)
+
+            http = socket.socket()
+            http.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            http.bind(("0.0.0.0", 80))
+            http.listen(2)
+            http.setblocking(False)
+            dns = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            dns.bind(("0.0.0.0", 53))
+            dns.setblocking(False)
+            notify("ap_started")
+
+            while time.ticks_diff(deadline, time.ticks_ms()) > 0:
+                feed()
+                self._serve_dns(dns)
+                try:
+                    conn, _ = http.accept()
+                except OSError:
+                    time.sleep_ms(50)
+                    continue
+                try:
+                    conn.settimeout(3)
+                    request = self._read_request(conn)
+                    if request is None:
+                        continue
+                    method, path, form = request
+                    if not (method == "POST" and path == "/save"):
+                        if method == "GET" and path == "/":
+                            self._send_http(conn, "200 OK", self._portal_form(ssids, error, ssid_hint))
+                        else:
+                            self._send_http(conn, "302 Found", "", "Location: http://192.168.4.1/\r\n")
+                        continue
+
+                    new_ssid = form.get("ssid", "")
+                    new_pass = form.get("password", "")
+                    if not 1 <= len(new_ssid.encode()) <= 32:
+                        error = "The network name must be 1-32 characters."
+                    elif new_pass and not 8 <= len(new_pass) <= 63:
+                        error = "The password must be 8-63 characters, or blank for an open network."
+                    else:
+                        error = ""
+                    ssid_hint = new_ssid
+                    if error:
+                        self._send_http(conn, "200 OK", self._portal_form(ssids, error, ssid_hint))
+                        continue
+
+                    notify("connecting")
+                    if self.debug_mode:
+                        print("Provisioning: trying SSID", new_ssid, "with password ****")
+                    if self._try_sta_connect(sta, new_ssid, new_pass):
+                        self.ssid = new_ssid
+                        self.password = new_pass
+                        self.wifi_connected = True
+                        self._send_http(conn, "200 OK", _MESSAGE_PAGE.format(
+                            title="Connected", text="The device joined " + _html_escape(new_ssid) + ". You can close this page."))
+                        connected = True
+                        notify("success")
+                        return new_ssid, new_pass
+
+                    attempts += 1
+                    notify("failed")
+                    if attempts >= max_attempts:
+                        self._send_http(conn, "200 OK", _MESSAGE_PAGE.format(
+                            title="Connection failed", text="Could not join the network. Setup has ended."))
+                        raise WifiConnectError("Could not connect to the submitted Wi-Fi network")
+                    error = "Could not connect. Check the name and password and try again."
+                    self._send_http(conn, "200 OK", self._portal_form(ssids, error, ssid_hint))
+                except (OSError, ValueError):
+                    continue
+                finally:
+                    conn.close()
+
+            notify("timeout")
+            raise WifiProvisioningTimeout("Wi-Fi provisioning timed out")
+        finally:
+            for s in (http, dns):
+                if s:
+                    try:
+                        s.close()
+                    except OSError:
+                        pass
+            if connected:
+                feed()
+                time.sleep(1)  # let the success page reach the client before the AP goes down
+            ap.active(False)
+
+    def _scan_ssids(self, sta):
+        """Return up to 20 nearby SSIDs, strongest first."""
+        try:
+            results = sta.scan()
+        except OSError:
+            return []
+        if self.watchdog: self.watchdog.feed()
+        best = {}
+        for entry in results:
+            try:
+                name = entry[0].decode()
+            except UnicodeError:
+                continue
+            if name and (name not in best or entry[3] > best[name]):
+                best[name] = entry[3]
+        return sorted(best, key=lambda n: best[n], reverse=True)[:20]
+
+    def _try_sta_connect(self, sta, ssid, password, timeout_s=20):
+        """Attempt a station connection; return True once an IP address is obtained."""
+        sta.disconnect()
+        if password:
+            sta.connect(ssid, password)
+        else:
+            sta.connect(ssid)
+        deadline = time.ticks_add(time.ticks_ms(), timeout_s * 1000)
+        while time.ticks_diff(deadline, time.ticks_ms()) > 0:
+            if self.watchdog: self.watchdog.feed()
+            status = sta.status()
+            if status == 3:
+                return True
+            if status < 0:
+                break
+            time.sleep_ms(500)
+        sta.disconnect()
+        return False
+
+    def _read_request(self, conn):
+        """Read one HTTP request; return (method, path, form_dict) or None if malformed."""
+        data = b""
+        while b"\r\n\r\n" not in data:
+            chunk = conn.recv(512)
+            if not chunk or len(data) > 2048:
+                return None
+            data += chunk
+        head, _, body = data.partition(b"\r\n\r\n")
+        lines = head.decode().split("\r\n")
+        parts = lines[0].split(" ")
+        if len(parts) < 2:
+            return None
+        length = 0
+        for line in lines[1:]:
+            if line.lower().startswith("content-length:"):
+                length = int(line.split(":", 1)[1].strip())
+        if length > 1024:
+            return None
+        while len(body) < length:
+            chunk = conn.recv(512)
+            if not chunk:
+                break
+            body += chunk
+        form = {}
+        if parts[0] == "POST":
+            for pair in body.decode().split("&"):
+                key, _, value = pair.partition("=")
+                form[form_decode(key)] = form_decode(value)
+        return parts[0], parts[1].split("?")[0], form
+
+    def _send_http(self, conn, status, body, extra_headers=""):
+        payload = body.encode()
+        header = "HTTP/1.1 %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\nConnection: close\r\n%s\r\n" % (
+            status, len(payload), extra_headers)
+        conn.sendall(header.encode() + payload)
+
+    def _portal_form(self, ssids, error, ssid_hint):
+        opts = "".join('<option value="%s">' % _html_escape(s) for s in ssids)
+        msg = '<p style="color:#b00"><b>%s</b></p>' % _html_escape(error) if error else ""
+        return _PORTAL_PAGE.format(msg=msg, ssid=_html_escape(ssid_hint), opts=opts)
+
+    def _serve_dns(self, sock):
+        """Answer any pending DNS query with the AP address so clients show the setup page."""
+        try:
+            data, addr = sock.recvfrom(256)
+        except OSError:
+            return
+        i = 12
+        while i < len(data) and data[i]:
+            i += data[i] + 1
+        end = i + 5  # terminating zero byte + QTYPE + QCLASS
+        if len(data) < 12 or end > len(data):
+            return
+        is_a_query = data[end - 4] == 0 and data[end - 3] == 1
+        answer = b"\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04\xc0\xa8\x04\x01" if is_a_query else b""
+        response = (data[:2] + b"\x81\x80\x00\x01" + (b"\x00\x01" if is_a_query else b"\x00\x00")
+                    + b"\x00\x00\x00\x00" + data[12:end] + answer)
+        try:
+            sock.sendto(response, addr)
+        except OSError:
+            pass
 
     def sync_time(self, max_retries=5):
         """Synchronize the device clock with an NTP server."""

@@ -14,6 +14,7 @@ import requests
 import secrets
 import gc
 import json
+import os
 import network
 from nature_api import Client
 from lantern_config import (
@@ -24,7 +25,7 @@ from lantern_config import (
     settings_match,
 )
 
-version = "1.0.51"
+version = "1.0.52"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -100,6 +101,10 @@ red_pin_2 = 8
 green_pin_2 = 9
 blue_pin_2 = 10
 
+SETUP_BUTTON_PIN = 16  # momentary switch to ground
+SETUP_AP_MAX_ATTEMPTS = 10
+SETUP_AP_TIMEOUT_SECONDS = 600
+
 GUST_INTERVAL_LOW = 15000  # 15 seconds
 GUST_INTERVAL_HIGH = 40000  # 40 seconds
 GUST_LENGTH_LOW = 3000  # 3 seconds
@@ -138,7 +143,18 @@ green_pwm.duty(70)
 red_pwm_2.duty(3)
 green_pwm_2.duty(70)
 
-apply_reboot_backoff()
+def setup_button_pressed():
+    """Return True if the setup button is held low (debounced)."""
+    button = Pin(SETUP_BUTTON_PIN, Pin.IN, Pin.PULL_UP)
+    if button.value():
+        return False
+    time.sleep_ms(50)
+    return not button.value()
+
+setup_requested = setup_button_pressed()
+
+if not setup_requested:  # a deliberate setup request should not wait out a reboot backoff
+    apply_reboot_backoff()
 
 wdt = WDT(timeout=8388)  # 8-second watchdog timer
 
@@ -161,6 +177,71 @@ def get_lantern_mac():
     wlan = network.WLAN(network.STA_IF)
     mac_bytes = wlan.config('mac')
     return ''.join('{:02X}'.format(value) for value in mac_bytes)
+
+def set_led_color(red, green, blue):
+    """Set both LED sets from 0-100 brightness values (outputs are inverted: 100 = off)."""
+    for pwm, level in ((red_pwm, red), (green_pwm, green), (blue_pwm, blue),
+                       (red_pwm_2, red), (green_pwm_2, green), (blue_pwm_2, blue)):
+        pwm.duty(100 - level)
+
+SETUP_STATUS_COLORS = {
+    "ap_started": (0, 0, 80),
+    "connecting": (60, 40, 0),
+    "failed": (80, 0, 0),
+    "success": (0, 80, 0),
+    "timeout": (80, 0, 0),
+}
+
+def setup_status_led(state):
+    """on_status callback: show setup progress on the LEDs."""
+    color = SETUP_STATUS_COLORS.get(state)
+    if color:
+        set_led_color(*color)
+
+def save_wifi_credentials(new_ssid, new_password):
+    """Rewrite only the WIFI_SSID/WIFI_PASSWORD lines of secrets.py, atomically."""
+    replacements = {
+        "WIFI_SSID": "WIFI_SSID = " + json.dumps(new_ssid),
+        "WIFI_PASSWORD": "WIFI_PASSWORD = " + json.dumps(new_password),
+    }
+    with open("secrets.py", "r") as f:
+        lines = f.read().split("\n")
+    found = set()
+    for i, line in enumerate(lines):
+        for key, new_line in replacements.items():
+            if line.replace(" ", "").startswith(key + "="):
+                lines[i] = new_line
+                found.add(key)
+    for key, new_line in replacements.items():
+        if key not in found:
+            lines.append(new_line)
+    with open("secrets.tmp", "w") as f:
+        f.write("\n".join(lines))
+    os.rename("secrets.tmp", "secrets.py")
+    secrets.WIFI_SSID = new_ssid
+    secrets.WIFI_PASSWORD = new_password
+
+def run_wifi_setup():
+    """Run the open-AP setup portal and store the new credentials; always resets afterward."""
+    print("Setup button pressed, starting Wi-Fi setup AP")
+    try:
+        ap_name = "WindLantern-Setup-" + get_lantern_mac()[-4:]
+        new_ssid, new_password = nature_client.provision_wifi(
+            ap_ssid=ap_name,
+            ap_password=None,
+            timeout=SETUP_AP_TIMEOUT_SECONDS,
+            max_attempts=SETUP_AP_MAX_ATTEMPTS,
+            on_status=setup_status_led,
+        )
+        save_wifi_credentials(new_ssid, new_password)
+        print("Wi-Fi credentials saved for:", new_ssid, "- rebooting")
+    except Exception as e:
+        print("Wi-Fi setup failed, rebooting:", e)
+    clear_reboot_backoff()
+    reset()
+
+if setup_requested:
+    run_wifi_setup()
 
 def get_settings_url():
     """Build the remote settings URL identifying this lantern and firmware version."""
@@ -490,7 +571,7 @@ def update_firmware():
     wdt.feed()
     try:
         ugit.safe_pull_all(user='faludi', repository='wind-lantern-firmware', branch=None, token=None,
-                        ssid=secrets.WIFI_SSID, password=secrets.WIFI_PASSWORD, ignore=['/README.md', '/LICENSE', '/secrets.py', '/.gitignore', '/reboot_state.json'],
+                        ssid=nature_client.ssid, password=nature_client.password, ignore=['/README.md', '/LICENSE', '/secrets.py', '/.gitignore', '/reboot_state.json'],
                         isconnected=True, reset_after=True)
         wdt.feed()
         print("Safe firmware pull completed.")
