@@ -1,4 +1,4 @@
-# Rob Faludi 2025
+# Rob Faludi 2025-26
 # WiFi based on code from Rui Santos & Sara Santos
 # https://randomnerdtutorials.com/raspberry-pi-pico-w-wi-fi-micropython/
 # Flicker based on code from Grant Whitney
