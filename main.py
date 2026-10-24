@@ -148,13 +148,12 @@ def setup_button_pressed():
 
 setup_requested = setup_button_pressed()
 
-red_pwm.duty(3)
-green_pwm.duty(70)
-red_pwm_2.duty(3)
-green_pwm_2.duty(70)
-
 if not setup_requested:  # a deliberate setup request should not wait out a reboot backoff
     apply_reboot_backoff()
+    red_pwm.duty(3)
+    green_pwm.duty(70)
+    red_pwm_2.duty(3)
+    green_pwm_2.duty(70)
 
 wdt = WDT(timeout=8388)  # 8-second watchdog timer
 
