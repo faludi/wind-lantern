@@ -128,7 +128,7 @@ try {
     if (!empty($_SESSION['user_id'])) {
         $currentUser = require_login();
         if ($currentUser['is_admin']) {
-            $statement = $pdo->query("SELECT $settingsColumns FROM lanterns ORDER BY id");
+            $statement = $pdo->query("SELECT lanterns.*, users.username AS owner_username FROM lanterns JOIN users ON users.id = lanterns.user_id ORDER BY lanterns.id");
         } else {
             $statement = $pdo->prepare("SELECT $settingsColumns FROM lanterns WHERE user_id = :user_id ORDER BY id");
             $statement->execute(['user_id' => $currentUser['id']]);
@@ -1007,7 +1007,7 @@ textarea:focus {
                 <select id="lantern" name="lantern" onchange="this.form.submit()">
                     <?php foreach ($lanterns as $option): ?>
                         <option value="<?= (int)$option['id'] ?>" <?= $lantern && (int)$lantern['id'] === (int)$option['id'] ? 'selected' : '' ?>>
-                            <?= htmlspecialchars($option['mac_address']) ?>
+                            <?= htmlspecialchars($option['mac_address'] . ($currentUser['is_admin'] ? ' - ' . $option['owner_username'] : '')) ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
