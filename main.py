@@ -26,7 +26,7 @@ from lantern_config import (
     settings_match,
 )
 
-version = "1.0.59"
+version = "1.0.60"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -93,7 +93,8 @@ timezone_offset_next_refresh = 0
 night_mode_next_update = 0
 TIMEZONE_OFFSET_REFRESH_MS = 3600000  # re-check timezone offset hourly
 NIGHT_MODE_UPDATE_INTERVAL_MS = 1000  # recompute night mode at most once per second
-PERIODIC_UPDATE_INTERVAL_MS = 15 * 60 * 1000  # check Wi-Fi, sync time, and update weather every 15 minutes
+PERIODIC_UPDATE_INTERVAL_MS = 15 * 60 * 1000  # check Wi-Fi and update weather every 15 minutes
+TIME_SYNC_INTERVAL_MS = 12 * 60 * 60 * 1000
 
 red_pin = 5
 green_pin = 6
@@ -648,12 +649,17 @@ async def main():
         except Exception as e:
             print('Warning: initial location setup failed:', e)
 
-    if not nature_client.sync_time():
+    initial_time_sync_succeeded = nature_client.sync_time()
+    if not initial_time_sync_succeeded:
         print('NTP sync failed, continuing with local time if available.')
     initial_time_sync_complete = True
 
     next_periodic_update = time.ticks_ms()
     next_settings_update = next_periodic_update
+    next_time_sync = time.ticks_add(
+        next_periodic_update,
+        TIME_SYNC_INTERVAL_MS if initial_time_sync_succeeded else PERIODIC_UPDATE_INTERVAL_MS,
+    )
     first_cycle_complete = False
     while True:
         wdt.feed()
@@ -667,13 +673,19 @@ async def main():
         if time.ticks_diff(time.ticks_ms(), next_periodic_update) >= 0:
             if not nature_client.wifi_connected:
                 break  # exit if no connection
-            try:
-                print('Syncing time via NTP...')
-                wdt.feed()
-                nature_client.sync_time()
-                print(f"DateTime: {time.gmtime()[0]}-{time.gmtime()[1]:02}-{time.gmtime()[2]:02} {time.gmtime()[3]:02}:{time.gmtime()[4]:02}:{time.gmtime()[5]:02} UTC  ")
-            except Exception as e:
-                print("Failed to update NTP or solar data; retrying in 15 minutes.", e)
+            if time.ticks_diff(time.ticks_ms(), next_time_sync) >= 0:
+                try:
+                    print('Syncing time via NTP...')
+                    wdt.feed()
+                    if nature_client.sync_time():
+                        print(f"DateTime: {time.gmtime()[0]}-{time.gmtime()[1]:02}-{time.gmtime()[2]:02} {time.gmtime()[3]:02}:{time.gmtime()[4]:02}:{time.gmtime()[5]:02} UTC  ")
+                        next_time_sync = time.ticks_add(
+                            time.ticks_ms(), TIME_SYNC_INTERVAL_MS
+                        )
+                    else:
+                        print("NTP sync failed; retrying in 15 minutes.")
+                except Exception as e:
+                    print("Failed to update NTP; retrying in 15 minutes.", e)
             try:
                 # Fetch and display weather data using nature_api
                 weather = fetch_weather_data()
