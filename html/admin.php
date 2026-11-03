@@ -157,12 +157,13 @@ a { color: #155d70; }
 table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
 th, td { padding: .75rem 0; border-bottom: 1px solid #cbbda8; text-align: left; vertical-align: top; }
 small { color: #645a50; }
+.admin-nav { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.admin-nav p, .admin-nav button { margin: 0; }
 </style>
 </head>
 <body>
 <main>
 <h1>Wind Lantern Administration</h1>
-<button type="button" onclick="window.location.replace(window.location.pathname + window.location.search)">Refresh</button>
 <?php foreach ($errors as $error): ?><p class="error"><?= htmlspecialchars($error) ?></p><?php endforeach; ?>
 <?php if ($success): ?><p class="success"><?= htmlspecialchars($success) ?></p><?php endif; ?>
 <?php if (!$hasUsers): ?>
@@ -175,7 +176,10 @@ small { color: #645a50; }
 <button type="submit">Create administrator</button>
 </form>
 <?php else: ?>
+<div class="admin-nav">
 <p><a href="index.php">Back to dashboard</a> | <a href="index.php?logout=1">Log out</a></p>
+<button type="button" onclick="window.location.replace(window.location.pathname + window.location.search)">Refresh</button>
+</div>
 <?php if ($selectedUser): ?>
 <p><a href="admin.php">Back to users and lanterns</a></p>
 <h2>Edit user</h2>
