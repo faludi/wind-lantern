@@ -19,7 +19,7 @@
 # This file is auto-ignored so ugit will never delete or overwrite it.
 # NEVER commit config.json to your GitHub repository.
 
-__version__ = '2.1.0'
+__version__ = '2.1.0.1'
 
 import os
 import urequests
