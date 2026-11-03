@@ -26,7 +26,7 @@ from lantern_config import (
     settings_match,
 )
 
-version = "1.0.64"
+version = "1.0.65"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -286,6 +286,27 @@ def fetch_weather_data():
         print('Error fetching weather data:', e)
         return None
     
+def fetch_and_display_weather_data():
+    """Fetch current weather data and display the wind conditions."""
+    try:
+        # Fetch and display weather data using nature_api
+        weather = fetch_weather_data()
+        if weather is not None:
+            # print('Weather Data:', weather)
+            wind_speed = weather['current']['wind_speed_10m']*0.27778
+            wind_gusts = weather['current']['wind_gusts_10m']*0.27778
+            timestamp = weather['current']['time']
+            wind_manager.set_wind(wind_speed, wind_gusts)
+            print('Timestamp:', parse_datetime(timestamp))
+            print(f"Speed: {weather['current']['wind_speed_10m']} kph, Gusts: {weather['current']['wind_gusts_10m']} kph")
+            print(f"Speed: {wind_speed * 2.23693629:.2f} mph, Gusts: {wind_gusts * 2.23693629:.2f} mph")
+            print(f"Speed {wind_speed:.2f} m/s, Gusts {wind_gusts:.2f} m/s")
+            print("Wind factor:", wind_manager.wind_factor, "Gust factor:", wind_manager.gust_factor)
+        else:
+            print('No weather data available')
+    except Exception as e:
+        print('Error fetching weather data:', e)
+
 def open_config():
     """Load normalized settings from config.json, creating it from defaults if absent."""
     try:
@@ -386,6 +407,7 @@ async def update_settings():
         remote_settings = settings.copy()
         remote_settings.pop("latitude", None)
         remote_settings.pop("longitude", None)
+        previous_address = address
         apply_settings(remote_settings)
         print("Using Address:", address)
         if address:
@@ -399,6 +421,8 @@ async def update_settings():
                         nature_client.set_timezone_from_location()
                     except Exception as e:
                         print('Warning: failed to set timezone from location:', e)
+                    if address != previous_address:
+                        fetch_and_display_weather_data()
                 else:
                     raise ValueError('Location lookup returned no coordinates')
             except Exception as e:
@@ -722,24 +746,7 @@ async def main():
                         print("NTP sync failed; retrying in 15 minutes.")
                 except Exception as e:
                     print("Failed to update NTP; retrying in 15 minutes.", e)
-            try:
-                # Fetch and display weather data using nature_api
-                weather = fetch_weather_data()
-                if weather is not None:
-                    # print('Weather Data:', weather)
-                    wind_speed = weather['current']['wind_speed_10m']*0.27778
-                    wind_gusts = weather['current']['wind_gusts_10m']*0.27778
-                    timestamp = weather['current']['time']
-                    wind_manager.set_wind(wind_speed, wind_gusts)
-                    print('Timestamp:', parse_datetime(timestamp))
-                    print(f"Speed: {weather['current']['wind_speed_10m']} kph, Gusts: {weather['current']['wind_gusts_10m']} kph")
-                    print(f"Speed: {wind_speed * 2.23693629:.2f} mph, Gusts: {wind_gusts * 2.23693629:.2f} mph")
-                    print(f"Speed {wind_speed:.2f} m/s, Gusts {wind_gusts:.2f} m/s")
-                    print("Wind factor:", wind_manager.wind_factor, "Gust factor:", wind_manager.gust_factor)
-                else:
-                    print('No weather data available')
-            except Exception as e:
-                print('Error fetching weather data:', e)
+            fetch_and_display_weather_data()
             next_periodic_update = time.ticks_add(
                 time.ticks_ms(), PERIODIC_UPDATE_INTERVAL_MS
             )
