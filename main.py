@@ -26,7 +26,7 @@ from lantern_config import (
     settings_match,
 )
 
-version = "1.0.63"
+version = "1.0.64"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -129,18 +129,17 @@ red_pwm.duty(100)
 green_pwm = Pulse(Pin(green_pin))
 green_pwm.freq(300)
 green_pwm.duty(100)
-blue_pwm = Pulse(Pin(blue_pin))
-blue_pwm.freq(300)
-blue_pwm.duty(100)
 red_pwm_2 = Pulse(Pin(red_pin_2))
 red_pwm_2.freq(300)
 red_pwm_2.duty(100)
 green_pwm_2 = Pulse(Pin(green_pin_2))
 green_pwm_2.freq(300)
 green_pwm_2.duty(100)
-blue_pwm_2 = Pulse(Pin(blue_pin_2))
-blue_pwm_2.freq(300)
-blue_pwm_2.duty(100)
+
+blue = Pin(blue_pin, Pin.OUT)
+blue2 = Pin(blue_pin_2, Pin.OUT)
+blue.value(1)
+blue2.value(1)
 
 def setup_button_pressed():
     """Return True if the setup button is held low (debounced)."""
@@ -184,8 +183,8 @@ def get_lantern_mac():
 
 def set_led_color(red, green, blue):
     """Set both LED sets from 0-100 brightness values (outputs are inverted: 100 = off)."""
-    for pwm, level in ((red_pwm, red), (green_pwm, green), (blue_pwm, blue),
-                       (red_pwm_2, red), (green_pwm_2, green), (blue_pwm_2, blue)):
+    for pwm, level in ((red_pwm, red), (green_pwm, green),
+                       (red_pwm_2, red), (green_pwm_2, green)):
         pwm.duty(100 - level)
 
 SETUP_STATUS_COLORS = {
