@@ -572,19 +572,35 @@ def update_night_mode_state():
 
     return night_mode_current
 
+_fw_deadline = 0
+
+def _feed_during_update(_t):
+    if time.ticks_diff(_fw_deadline, time.ticks_ms()) > 0:
+        wdt.feed()
+
+def _start_feeder():
+    """Start the watchdog-feeding timer; retry after GC since ENOMEM here is heap fragmentation."""
+    from machine import Timer
+    for _ in range(3):
+        try:
+            gc.collect()
+            feeder = Timer(-1)  # RP2040 only supports the virtual timer id -1
+            feeder.init(period=1000, mode=Timer.PERIODIC, callback=_feed_during_update)
+            return feeder
+        except OSError as e:
+            print("Feeder timer init failed:", e)
+            time.sleep_ms(200)
+    return None
+
 def update_firmware():
     """Pull the latest firmware from GitHub via ugit and reset on success."""
-    from machine import Timer
+    global _fw_deadline
     print("Starting safe firmware pull from GitHub...")
     wdt.feed()
     gc.collect()
     # ugit blocks for long stretches; feed from a timer, but stop after 3 minutes so a hung update still resets.
-    deadline = time.ticks_add(time.ticks_ms(), 180000)
-    def feed_during_update(_t):
-        if time.ticks_diff(deadline, time.ticks_ms()) > 0:
-            wdt.feed()
-    feeder = Timer(-1)  # RP2040 only supports the virtual timer id -1
-    feeder.init(period=1000, mode=Timer.PERIODIC, callback=feed_during_update)
+    _fw_deadline = time.ticks_add(time.ticks_ms(), 180000)
+    feeder = _start_feeder()
     try:
         gc.collect()
         ugit.safe_pull_all(user='faludi', repository='wind-lantern-firmware', branch=None, token=None,
@@ -594,8 +610,13 @@ def update_firmware():
         print("Safe firmware pull completed.")
     except Exception as e:
         print("Safe firmware pull failed:", e)
+        if isinstance(e, MemoryError) or (isinstance(e, OSError) and e.args and e.args[0] == 12):
+            print("Out of memory; resetting to retry update with a clean heap.")
+            time.sleep(1)
+            reset()
     finally:
-        feeder.deinit()
+        if feeder:
+            feeder.deinit()
 
 def rand_flicker_sleep():
     """Sleep a random 30-100 ms between flicker updates."""
