@@ -162,6 +162,7 @@ small { color: #645a50; }
 <body>
 <main>
 <h1>Wind Lantern Administration</h1>
+<button type="button" onclick="window.location.replace(window.location.pathname + window.location.search)">Refresh</button>
 <?php foreach ($errors as $error): ?><p class="error"><?= htmlspecialchars($error) ?></p><?php endforeach; ?>
 <?php if ($success): ?><p class="success"><?= htmlspecialchars($success) ?></p><?php endif; ?>
 <?php if (!$hasUsers): ?>
