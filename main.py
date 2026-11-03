@@ -26,7 +26,7 @@ from lantern_config import (
     settings_match,
 )
 
-version = "1.0.62"
+version = "1.0.63"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -116,6 +116,7 @@ WIND_REF = 1 # wind speed that passes through unchanged; raise to boost more of 
 WIND_EXPONENT = 0.7 # 1.0 = no change, lower = more compression (small values boosted, large reduced)
 
 terminateThread = False
+candle_running = False
 
 class Pulse(PWM):
     def duty(self, percent_duty):
@@ -594,9 +595,19 @@ def _start_feeder():
 
 def update_firmware():
     """Pull the latest firmware from GitHub via ugit and reset on success."""
-    global _fw_deadline
+    global _fw_deadline, terminateThread
     print("Starting safe firmware pull from GitHub...")
     wdt.feed()
+    # Stop the candle thread to free heap, then hold the lights at a fixed update color.
+    terminateThread = True
+    for _ in range(50):
+        if not candle_running:
+            break
+        time.sleep_ms(20)
+    red_pwm.duty(3)
+    green_pwm.duty(70)
+    red_pwm_2.duty(3)
+    green_pwm_2.duty(70)
     gc.collect()
     # ugit blocks for long stretches; feed from a timer, but stop after 3 minutes so a hung update still resets.
     _fw_deadline = time.ticks_add(time.ticks_ms(), 180000)
@@ -614,6 +625,9 @@ def update_firmware():
             print("Out of memory; resetting to retry update with a clean heap.")
             time.sleep(1)
             reset()
+        # Update failed without a reset: bring the candle back.
+        terminateThread = False
+        _thread.start_new_thread(light_candle, ())
     finally:
         if feeder:
             feeder.deinit()
@@ -624,9 +638,10 @@ def rand_flicker_sleep():
 
 def light_candle():
     """Thread loop: drive the red/green PWM channels to simulate a wind-affected candle."""
-    global wind_manager
+    global wind_manager, candle_running
     gc.collect()
     print("Starting candle thread")
+    candle_running = True
     while terminateThread == False:
         factor = wind_manager.get_wind_factor()
         intensity = wind_manager.get_intensity()
@@ -638,6 +653,7 @@ def light_candle():
         green_pwm_2.duty(scale_brightness(100 - min(random.uniform(31-factor-color_temperature, 32-color_temperature) * intensity, 100), brightness_level))
         rand_flicker_sleep()
         time.sleep_ms(1)
+    candle_running = False
 
 wind_manager = WindManager(flicker_intensity)
 
