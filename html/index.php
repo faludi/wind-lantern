@@ -75,7 +75,7 @@ $settingsFields = [
     ],
     'settings_update_interval' => [
         'label' => 'Settings Update Interval',
-        'hint' => 'Frequency of settings updates, 1 to 10080 minutes, default 15',
+        'hint' => 'Frequency of settings updates, 5 to 180 minutes, default 15',
         'type' => 'int',
         'min' => 1,
         'max' => 10080,
@@ -1068,6 +1068,8 @@ textarea:focus {
                                 <?php
                                 $sliderMin = $key === 'settings_update_interval' ? 5 : $field['min'];
                                 $sliderMax = $key === 'settings_update_interval' ? 180 : $field['max'];
+                                $inputMin = $key === 'settings_update_interval' ? 5 : $field['min'];
+                                $inputMax = $key === 'settings_update_interval' ? 180 : $field['max'];
                                 ?>
                                 <div class="range-controls">
                                     <input
@@ -1084,8 +1086,8 @@ textarea:focus {
                                         name="<?= htmlspecialchars($key) ?>"
                                         type="number"
                                         step="1"
-                                        min="<?= htmlspecialchars((string)$field['min']) ?>"
-                                        max="<?= htmlspecialchars((string)$field['max']) ?>"
+                                        min="<?= htmlspecialchars((string)$inputMin) ?>"
+                                        max="<?= htmlspecialchars((string)$inputMax) ?>"
                                         data-default="<?= htmlspecialchars((string)$field['default'], ENT_QUOTES, 'UTF-8') ?>"
                                         value="<?= htmlspecialchars((string)$data[$key]) ?>">
                                 </div>
