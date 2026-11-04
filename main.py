@@ -28,7 +28,7 @@ from lantern_config import (
 )
 from settings_store import load_settings, save_settings
 
-version = "1.0.66"
+version = "1.0.67"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
