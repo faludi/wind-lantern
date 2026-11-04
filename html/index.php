@@ -75,7 +75,7 @@ $settingsFields = [
     ],
     'settings_update_interval' => [
         'label' => 'Settings Update Interval',
-        'hint' => 'Frequency of settings updates, 5 to 180 minutes, default 15',
+        'hint' => 'Frequency of settings updates, 1 to 10080 minutes, default 15',
         'type' => 'int',
         'min' => 1,
         'max' => 10080,

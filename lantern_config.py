@@ -16,18 +16,22 @@ DEFAULT_SETTINGS = {
 }
 
 
-def normalize_brightness(value, fallback=100):
+def _normalize_integer_range(value, minimum, maximum, fallback):
     try:
-        return min(max(float(value), 0), 100)
-    except (TypeError, ValueError):
+        normalized = int(value)
+        if float(value) != normalized:
+            return fallback
+        return min(max(normalized, minimum), maximum)
+    except (TypeError, ValueError, OverflowError):
         return fallback
+
+
+def normalize_brightness(value, fallback=100):
+    return _normalize_integer_range(value, 0, 100, fallback)
 
 
 def normalize_color_temperature(value, fallback=0):
-    try:
-        return min(max(float(value), -10), 10)
-    except (TypeError, ValueError):
-        return fallback
+    return _normalize_integer_range(value, -10, 10, fallback)
 
 
 def normalize_flicker_intensity(value, fallback=1):
@@ -38,32 +42,15 @@ def normalize_flicker_intensity(value, fallback=1):
 
 
 def normalize_settings_update_interval(value, fallback=15):
-    try:
-        interval = int(value)
-        if float(value) != interval:
-            return fallback
-        return min(max(interval, 1), 10080)
-    except (TypeError, ValueError):
-        return fallback
+    return _normalize_integer_range(value, 1, 10080, fallback)
 
 
 def normalize_night_brightness(value, fallback=10):
-    try:
-        return min(max(float(value), 0), 100)
-    except (TypeError, ValueError):
-        return fallback
+    return _normalize_integer_range(value, 0, 100, fallback)
 
 
 def normalize_night_hour(value, fallback=0):
-    try:
-        hour = int(value)
-    except (TypeError, ValueError):
-        return fallback
-    if hour < 0:
-        return 0
-    if hour > 23:
-        return 23
-    return hour
+    return _normalize_integer_range(value, 0, 23, fallback)
 
 
 _NORMALIZERS = {

@@ -1,20 +1,22 @@
-## Multi-lantern web setup
+## Web and Device Setup
 
-The web application in `html/` now stores users, lanterns, and addresses in MySQL.
-`Wind_Lantern_NatureAPI.py` identifies each lantern by its Wi-Fi MAC address and
-requests its address from:
+The PHP application in `html/` stores users, lanterns, and their settings in MySQL. The firmware in `main.py` identifies each device by its Wi-Fi MAC address and checks in with `html/lantern_checkin.php`. The endpoint returns settings for an active registered lantern, records its firmware version and check-in time, and delivers a queued firmware update once.
 
-`https://shinyshape.com/windlantern/lantern_checkin.php?mac=590E72AC9387`
+### Web deployment
 
-### DreamHost setup
+1. Create a MySQL database and database user with your hosting provider. Note the database hostname, database name, username, and password.
+2. Copy `wind_lantern_db_config.example.php` to `wind_lantern_db_config.php` one directory above the public `html/` directory, then enter the database values. Keep the completed file out of source control and outside the public web directory.
+3. Import `html/schema.sql` into the new database using the provider's database tools or a MySQL client.
+4. Visit `/windlantern/admin.php` and create the first administrator account while the `users` table is empty. After setup, the page requires an administrator login.
+5. In the administration page, register each lantern's MAC address, initial address, owner username, and owner password. Use the device's station/Wi-Fi MAC address.
+6. Sign in to `/windlantern/index.php` to edit the lantern settings. The dashboard settings endpoint should be `https://shinyshape.com/windlantern/lantern_checkin.php` unless your deployment uses a different host.
 
-1. Create a MySQL database and database user in the DreamHost panel. Note the database hostname, database name, username, and password.
-2. Copy `wind_lantern_db_config.example.php` to `wind_lantern_db_config.php` one directory above the public `html/` directory, then fill in the DreamHost values. Do not upload the completed file to source control.
-3. Import `html/schema.sql` into the new database using DreamHost's phpMyAdmin or MySQL client.
-4. Visit `/windlantern/admin.php`. The first visit, while the `users` table is empty, creates the first administrator account. After that, the page requires administrator login.
-5. Use the administrator page to register each lantern's MAC address, initial address, owner username, and owner password.
-6. Update the lantern with `Wind_Lantern_NatureAPI.py`. The older `Wind_Lantern_WiFi.py` is intentionally unchanged.
+### Device setup
 
-The existing `wind_lantern_settings.json` file is retained as a migration reference
-but is no longer used by the new firmware or dashboard. The public check-in endpoint
-returns only the address for a matching active MAC address and does not require login.
+1. Install MicroPython on the Pico W and copy the current firmware files from the repository to its filesystem. `main.py` is the startup module.
+2. Create `secrets.py` from `secrets-example.py` and set the Wi-Fi network name and password. Do not commit the completed secrets file.
+3. On startup, the firmware loads `config.json`, connects to Wi-Fi, and checks in with the configured settings endpoint. If the device has not been configured for Wi-Fi, hold the setup button low on GP16 during startup to launch the `WindLantern-Setup-<last-four-MAC>` access point. The portal is open and remains available for up to ten minutes.
+4. Register the device's MAC address in the admin page. The first successful check-in receives its address and settings; the firmware periodically checks again based on `settings_update_interval`.
+5. To request a firmware update, queue it for the lantern in the admin page. The next check-in claims the one-time request, and the device pulls the firmware repository and restarts.
+
+The check-in endpoint is public to the device and does not require a dashboard login; it only returns settings for a matching active MAC address. The older `wind_lantern_settings.json` settings path is not used by the current firmware.
