@@ -24,11 +24,11 @@ from wind_manager import WindManager
 from lantern_config import (
     DEFAULT_SETTINGS,
     normalize_brightness,
-    normalize_settings,
 )
 from settings_store import load_settings, save_settings
+from settings_state import LanternSettings
 
-version = "1.0.67"
+version = "1.0.68"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -72,18 +72,8 @@ def clear_reboot_backoff():
     """Reset the reboot count after a healthy run."""
     _save_reboot_count(0)
 
-address = DEFAULT_SETTINGS["address"]
-latitude = DEFAULT_SETTINGS["latitude"]
-longitude = DEFAULT_SETTINGS["longitude"]
-settings_endpoint = DEFAULT_SETTINGS["settings_endpoint"]
-settings_update_interval = DEFAULT_SETTINGS["settings_update_interval"]  # minutes
+runtime_settings = LanternSettings(DEFAULT_SETTINGS)
 lantern_mac = None
-day_brightness = DEFAULT_SETTINGS["lantern_brightness"]
-night_brightness = DEFAULT_SETTINGS["night_brightness"]
-night_start_localtime = DEFAULT_SETTINGS["night_start"]
-night_end_localtime = DEFAULT_SETTINGS["night_end"]
-color_temperature = DEFAULT_SETTINGS["color_temperature"]
-flicker_intensity = DEFAULT_SETTINGS["flicker_intensity"]
 night_mode_current = 100
 night_mode_target = 100
 night_mode_fade_from = 100
@@ -204,7 +194,7 @@ if setup_requested:
 
 def get_settings_url():
     """Build the remote settings URL identifying this lantern and firmware version."""
-    return settings_endpoint + '?mac=' + get_lantern_mac() + '&version=' + version
+    return runtime_settings["settings_endpoint"] + '?mac=' + get_lantern_mac() + '&version=' + version
 
 def parse_datetime(timestamp):
     """Convert an ISO 'YYYY-MM-DDTHH:MM' string to 'MM/DD/YYYY HH:MM UTC'."""
@@ -259,42 +249,13 @@ def fetch_and_display_weather_data():
         print('Error fetching weather data:', e)
 
 def get_current_settings():
-    """Snapshot the current settings globals as a dict."""
-    return {
-        "address": address,
-        "latitude": latitude,
-        "longitude": longitude,
-        "settings_endpoint": settings_endpoint,
-        "settings_update_interval": settings_update_interval,
-        "lantern_brightness": day_brightness,
-        "night_brightness": night_brightness,
-        "night_start": night_start_localtime,
-        "night_end": night_end_localtime,
-        "color_temperature": color_temperature,
-        "flicker_intensity": flicker_intensity,
-    }
+    """Snapshot the current runtime settings as a dict."""
+    return runtime_settings.snapshot()
 
 def apply_settings(values, fallback=None):
-    """Normalize values (falling back to current settings) and assign them to the globals."""
-    global address, latitude, longitude, settings_endpoint, settings_update_interval
-    global day_brightness, night_brightness, night_start_localtime, night_end_localtime
-    global color_temperature, flicker_intensity
-
-    if fallback is None:
-        fallback = get_current_settings()
-    settings = normalize_settings(values, fallback)
-    address = settings["address"]
-    latitude = settings["latitude"]
-    longitude = settings["longitude"]
-    settings_endpoint = settings["settings_endpoint"]
-    settings_update_interval = settings["settings_update_interval"]
-    day_brightness = settings["lantern_brightness"]
-    night_brightness = settings["night_brightness"]
-    night_start_localtime = settings["night_start"]
-    night_end_localtime = settings["night_end"]
-    color_temperature = settings["color_temperature"]
-    flicker_intensity = settings["flicker_intensity"]
-    wind_manager.flicker_intensity = flicker_intensity
+    """Normalize and apply a full or partial settings update."""
+    runtime_settings.apply(values, fallback)
+    wind_manager.flicker_intensity = runtime_settings["flicker_intensity"]
 
 def fetch_address(url):
     """GET a URL and return its parsed JSON, or None on error."""
@@ -327,27 +288,27 @@ def fetch_address(url):
     
 async def update_settings():
     """Pull remote settings, resolve address to coordinates/timezone, save, and optionally update firmware."""
-    global latitude, longitude
     settings = fetch_address(get_settings_url())
     if settings is not None:
         remote_settings = settings.copy()
         remote_settings.pop("latitude", None)
         remote_settings.pop("longitude", None)
-        previous_address = address
+        previous_address = runtime_settings["address"]
         apply_settings(remote_settings)
-        print("Using Address:", address)
-        if address:
+        print("Using Address:", runtime_settings["address"])
+        if runtime_settings["address"]:
             try:
-                nature_client.set_location(address)
+                nature_client.set_location(runtime_settings["address"])
                 client_location = nature_client.get_location()
                 if client_location:
-                    latitude = float(client_location['latitude'])
-                    longitude = float(client_location['longitude'])
+                    runtime_settings.set_location(
+                        client_location['latitude'], client_location['longitude']
+                    )
                     try:
                         nature_client.set_timezone_from_location()
                     except Exception as e:
                         print('Warning: failed to set timezone from location:', e)
-                    if address != previous_address:
+                    if runtime_settings["address"] != previous_address:
                         fetch_and_display_weather_data()
                 else:
                     raise ValueError('Location lookup returned no coordinates')
@@ -370,7 +331,7 @@ async def wait_with_watchdog(milliseconds):
 def scale_brightness(duty, brightness_override=None):
     """Scale an inverted (100 = off) duty value by a brightness percentage."""
     if brightness_override is None:
-        brightness_override = day_brightness
+        brightness_override = runtime_settings["lantern_brightness"]
     brightness_level = normalize_brightness(brightness_override)
     return 100 - ((100 - duty) * brightness_level / 100)
 
@@ -403,7 +364,7 @@ def update_night_mode_state():
     """Return current brightness, fading over 10s between day and night levels."""
     global night_mode_current, night_mode_target, night_mode_fade_from, night_mode_fade_to, night_mode_fade_start, night_mode_next_update
     if not initial_time_sync_complete:
-        return day_brightness
+        return runtime_settings["lantern_brightness"]
     now = time.ticks_ms()
     # Skip recompute on most frames; the flicker loop calls this far more often than the state can change.
     if night_mode_fade_start is None and time.ticks_diff(now, night_mode_next_update) < 0:
@@ -412,8 +373,10 @@ def update_night_mode_state():
 
     offset_hours = get_local_timezone_offset_hours()
     local_hour = (time.gmtime()[3] + offset_hours) % 24
-    # print(f"Local hour: {local_hour}, Night start: {night_start_localtime}, Night end: {night_end_localtime}")
-    target = night_brightness if is_night_window(local_hour, night_start_localtime, night_end_localtime) else day_brightness
+    # print(f"Local hour: {local_hour}, Night start: {runtime_settings['night_start']}, Night end: {runtime_settings['night_end']}")
+    target = runtime_settings["night_brightness"] if is_night_window(
+        local_hour, runtime_settings["night_start"], runtime_settings["night_end"]
+    ) else runtime_settings["lantern_brightness"]
 
     if night_mode_target != target:
         night_mode_fade_from = night_mode_current
@@ -506,31 +469,31 @@ def light_candle():
         brightness_level = update_night_mode_state()
         hardware.set_primary_duties(
             scale_brightness(100 - min(random.uniform(95-factor, 100) * intensity, 100), brightness_level),
-            scale_brightness(100 - min(random.uniform(31-factor-color_temperature, 32-color_temperature) * intensity, 100), brightness_level),
+            scale_brightness(100 - min(random.uniform(31-factor-runtime_settings["color_temperature"], 32-runtime_settings["color_temperature"]) * intensity, 100), brightness_level),
         )
         rand_flicker_sleep()        
         hardware.set_secondary_duties(
             scale_brightness(100 - min(random.uniform(95-factor, 100) * intensity, 100), brightness_level),
-            scale_brightness(100 - min(random.uniform(31-factor-color_temperature, 32-color_temperature) * intensity, 100), brightness_level),
+            scale_brightness(100 - min(random.uniform(31-factor-runtime_settings["color_temperature"], 32-runtime_settings["color_temperature"]) * intensity, 100), brightness_level),
         )
         rand_flicker_sleep()
         time.sleep_ms(1)
     candle_running = False
 
-wind_manager = WindManager(flicker_intensity)
+wind_manager = WindManager(runtime_settings["flicker_intensity"])
 
 async def main():
     """Load config, connect Wi-Fi, sync time, then periodically refresh settings and wind data."""
     wdt.feed()
-    global address, latitude, longitude, settings_endpoint, settings_update_interval, lantern_mac, day_brightness, night_brightness, night_start_localtime, night_end_localtime, color_temperature, flicker_intensity, night_mode_current, night_mode_target, night_mode_fade_from, night_mode_fade_to, night_mode_fade_start, initial_time_sync_complete
-    settings = load_settings()
-    if settings is not None:
-        apply_settings(settings, DEFAULT_SETTINGS)
+    global lantern_mac, night_mode_current, night_mode_target, night_mode_fade_from, night_mode_fade_to, night_mode_fade_start, initial_time_sync_complete
+    loaded_settings = load_settings()
+    if loaded_settings is not None:
+        apply_settings(loaded_settings, DEFAULT_SETTINGS)
 
-    night_mode_current = day_brightness
-    night_mode_target = day_brightness
-    night_mode_fade_from = day_brightness
-    night_mode_fade_to = day_brightness
+    night_mode_current = runtime_settings["lantern_brightness"]
+    night_mode_target = runtime_settings["lantern_brightness"]
+    night_mode_fade_from = runtime_settings["lantern_brightness"]
+    night_mode_fade_to = runtime_settings["lantern_brightness"]
     night_mode_fade_start = None
 
     connection = connect_to_wifi()
@@ -539,12 +502,12 @@ async def main():
         reset()
 
     lantern_mac = get_lantern_mac()
-    # settings_endpoint = get_settings_url()
+    # The settings endpoint is stored in runtime_settings.
     print('Lantern MAC:', lantern_mac)
 
-    if address:
+    if runtime_settings["address"]:
         try:
-            nature_client.set_location(address)
+            nature_client.set_location(runtime_settings["address"])
         except Exception as e:
             print('Warning: initial location setup failed:', e)
 
@@ -566,7 +529,7 @@ async def main():
         if time.ticks_diff(now, next_settings_update) >= 0:
             await update_settings()
             next_settings_update = time.ticks_add(
-                time.ticks_ms(), settings_update_interval * 60 * 1000
+                time.ticks_ms(), runtime_settings["settings_update_interval"] * 60 * 1000
             )
 
         if time.ticks_diff(time.ticks_ms(), next_periodic_update) >= 0:

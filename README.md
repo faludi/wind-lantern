@@ -12,6 +12,7 @@ A Wi-Fi-connected lantern whose LED flicker responds to local wind conditions. T
 - `lantern_hardware.py` owns the LED pin mapping, PWM setup, and Wi-Fi setup-button input.
 - `lantern_config.py` defines firmware defaults and normalizes settings from local configuration and the server.
 - `settings_store.py` loads and saves normalized settings in `config.json`.
+- `settings_state.py` owns the normalized runtime settings and applies partial updates.
 - `html/` contains the PHP dashboard and MySQL schema. The dashboard manages lantern accounts and settings.
 - `html/lantern_checkin.php` identifies an active lantern by its Wi-Fi MAC address and returns its current settings and any queued firmware-update request.
 
