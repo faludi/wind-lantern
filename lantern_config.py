@@ -16,49 +16,49 @@ DEFAULT_SETTINGS = {
 }
 
 
-def normalize_brightness(value):
+def normalize_brightness(value, fallback=100):
     try:
         return min(max(float(value), 0), 100)
     except (TypeError, ValueError):
-        return 100
+        return fallback
 
 
-def normalize_color_temperature(value):
+def normalize_color_temperature(value, fallback=0):
     try:
         return min(max(float(value), -10), 10)
     except (TypeError, ValueError):
-        return 0
+        return fallback
 
 
-def normalize_flicker_intensity(value):
+def normalize_flicker_intensity(value, fallback=1):
     try:
         return min(max(float(value), 0), 5)
     except (TypeError, ValueError):
-        return 1
+        return fallback
 
 
-def normalize_settings_update_interval(value):
+def normalize_settings_update_interval(value, fallback=15):
     try:
         interval = int(value)
         if float(value) != interval:
-            return 15
+            return fallback
         return min(max(interval, 1), 10080)
     except (TypeError, ValueError):
-        return 15
+        return fallback
 
 
-def normalize_night_brightness(value):
+def normalize_night_brightness(value, fallback=10):
     try:
         return min(max(float(value), 0), 100)
     except (TypeError, ValueError):
-        return 10
+        return fallback
 
 
-def normalize_night_hour(value):
+def normalize_night_hour(value, fallback=0):
     try:
         hour = int(value)
     except (TypeError, ValueError):
-        return 0
+        return fallback
     if hour < 0:
         return 0
     if hour > 23:
@@ -85,7 +85,7 @@ def normalize_settings(values, fallback=None):
     for key, value in values.items():
         if key in DEFAULT_SETTINGS:
             normalizer = _NORMALIZERS.get(key)
-            settings[key] = normalizer(value) if normalizer else value
+            settings[key] = normalizer(value, settings[key]) if normalizer else value
 
     return settings
 
