@@ -21,14 +21,11 @@ import ugit
 from nature_api import Client
 from lantern_hardware import LanternHardware
 from wind_manager import WindManager
-from lantern_config import (
-    DEFAULT_SETTINGS,
-    normalize_brightness,
-)
+from lantern_config import DEFAULT_SETTINGS
 from settings_store import load_settings, save_settings
 from settings_state import LanternSettings
 
-version = "1.0.69"
+version = "1.0.70"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -329,7 +326,8 @@ def scale_brightness(duty, brightness_override=None):
     """Scale an inverted (100 = off) duty value by a brightness percentage."""
     if brightness_override is None:
         brightness_override = runtime_settings["lantern_brightness"]
-    brightness_level = normalize_brightness(brightness_override)
+    # Fade values are fractional; normalize_brightness rejects non-integers and would return 100.
+    brightness_level = min(max(brightness_override, 0), 100)
     return 100 - ((100 - duty) * brightness_level / 100)
 
 def get_local_timezone_offset_hours():
