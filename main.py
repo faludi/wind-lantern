@@ -28,7 +28,7 @@ from lantern_config import (
 from settings_store import load_settings, save_settings
 from settings_state import LanternSettings
 
-version = "1.0.68"
+version = "1.0.69"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -80,10 +80,7 @@ night_mode_fade_from = 100
 night_mode_fade_to = 100
 night_mode_fade_start = None
 initial_time_sync_complete = False
-cached_timezone_offset_hours = 0
-timezone_offset_next_refresh = 0
 night_mode_next_update = 0
-TIMEZONE_OFFSET_REFRESH_MS = 3600000  # re-check timezone offset hourly
 NIGHT_MODE_UPDATE_INTERVAL_MS = 1000  # recompute night mode at most once per second
 PERIODIC_UPDATE_INTERVAL_MS = 15 * 60 * 1000  # check Wi-Fi and update weather every 15 minutes
 TIME_SYNC_INTERVAL_MS = 12 * 60 * 60 * 1000
@@ -336,21 +333,8 @@ def scale_brightness(duty, brightness_override=None):
     return 100 - ((100 - duty) * brightness_level / 100)
 
 def get_local_timezone_offset_hours():
-    """Return the cached local UTC offset in hours, refreshing hourly when online."""
-    global cached_timezone_offset_hours, timezone_offset_next_refresh
-    if not nature_client.wifi_connected:
-        return cached_timezone_offset_hours
-    now = time.ticks_ms()
-    if time.ticks_diff(now, timezone_offset_next_refresh) < 0:
-        return cached_timezone_offset_hours
-    timezone_offset_next_refresh = time.ticks_add(now, TIMEZONE_OFFSET_REFRESH_MS)
-    try:
-        offset_seconds = nature_client.get_local_timezone_offset()
-        cached_timezone_offset_hours = int(offset_seconds / 3600)
-        print('Local timezone offset (hours):', cached_timezone_offset_hours)
-    except Exception as e:
-        print('Warning: failed to determine local timezone offset:', e)
-    return cached_timezone_offset_hours
+    """Return the UTC offset in hours cached by set_timezone_from_location (no network I/O)."""
+    return int(nature_client.get_remote_offset() / 3600)
 
 def is_night_window(local_hour, start_hour, end_hour):
     """True if local_hour falls in [start, end), supporting windows that wrap past midnight."""
