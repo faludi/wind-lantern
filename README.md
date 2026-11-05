@@ -14,6 +14,7 @@ A Wi-Fi-connected lantern whose LED flicker responds to local wind conditions. T
 - `settings_store.py` loads and saves normalized settings in `config.json`.
 - `settings_state.py` owns the normalized runtime settings and applies partial updates.
 - `html/` contains the PHP dashboard and MySQL schema. The dashboard manages lantern accounts and settings.
+- `html/settings_schema.php` defines dashboard metadata and the typed settings payload returned to firmware.
 - `html/lantern_checkin.php` identifies an active lantern by its Wi-Fi MAC address and returns its current settings and any queued firmware-update request.
 
 The settings flow is:
@@ -34,7 +35,7 @@ If the server cannot be reached, the device continues using its local settings. 
 
 ## Development Checks
 
-The settings module and its tests run under host Python:
+The host test suite requires Python 3 and PHP CLI for cross-layer settings checks:
 
 ```sh
 python3 -m unittest discover -s testing -v

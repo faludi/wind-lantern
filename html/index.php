@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/settings_schema.php';
 
 session_set_cookie_params([
     'httponly' => true,
@@ -17,77 +18,7 @@ $lantern = null;
 $lanterns = [];
 $fieldErrors = [];
 
-$settingsFields = [
-    'address' => [
-        'label' => 'Address',
-        'hint' => 'Examples: "350 5th Ave, New York, NY" or "40.749284, -73.985607")',
-        'type' => 'string',
-        'default' => '',
-    ],
-    'lantern_brightness' => [
-        'label' => 'Lantern Brightness',
-        'hint' => 'Percent of full brightness, 0 to 100, default 100',
-        'type' => 'int',
-        'min' => 0,
-        'max' => 100,
-        'default' => 100,
-    ],
-    'night_start' => [
-        'label' => 'Night Start',
-        'hint' => 'Hour when night mode begins.',
-        'type' => 'int',
-        'min' => 0,
-        'max' => 23,
-        'default' => 22,
-    ],
-    'night_end' => [
-        'label' => 'Night End',
-        'hint' => 'Hour when night mode ends.',
-        'type' => 'int',
-        'min' => 0,
-        'max' => 23,
-        'default' => 8,
-    ],
-    'night_brightness' => [
-        'label' => 'Night Brightness',
-        'hint' => 'Percent of full brightness at night, 0 to 100, default 20',
-        'type' => 'int',
-        'min' => 0,
-        'max' => 100,
-        'default' => 20,
-    ],
-    'color_temperature' => [
-        'label' => 'Color Temperature',
-        'hint' => 'Yellow (-10) to red (10), default 0 for neutral',
-        'type' => 'int',
-        'min' => -10,
-        'max' => 10,
-        'default' => 0,
-    ],
-    'flicker_intensity' => [
-        'label' => 'Flicker Intensity',
-        'hint' => 'Sensitivity to wind, 0 to 5 multiplier, default 1',
-        'type' => 'float',
-        'min' => 0,
-        'max' => 5,
-        'step' => 0.1,
-        'default' => 1.0,
-    ],
-    'settings_update_interval' => [
-        'label' => 'Settings Update Interval',
-        'hint' => 'Frequency of settings updates, 5 to 180 minutes, default 15',
-        'type' => 'int',
-        'min' => 1,
-        'max' => 10080,
-        'default' => 15,
-    ],
-    'settings_endpoint' => [
-        'label' => 'Settings Endpoint',
-        'hint' => 'HTTP or HTTPS URL used to retrieve online settings.',
-        'type' => 'url',
-        'default' => 'https://shinyshape.com/windlantern/lantern_checkin.php',
-    ],
-];
+$settingsFields = lantern_settings_schema();
 
 $sliderFields = ['lantern_brightness', 'night_brightness', 'settings_update_interval', 'color_temperature'];
 
@@ -1066,10 +997,8 @@ textarea:focus {
                                     value="<?= htmlspecialchars((string)$data[$key]) ?>">
                             <?php elseif (in_array($key, $sliderFields, true)): ?>
                                 <?php
-                                $sliderMin = $key === 'settings_update_interval' ? 5 : $field['min'];
-                                $sliderMax = $key === 'settings_update_interval' ? 180 : $field['max'];
-                                $inputMin = $key === 'settings_update_interval' ? 5 : $field['min'];
-                                $inputMax = $key === 'settings_update_interval' ? 180 : $field['max'];
+                                $sliderMin = $field['ui_min'] ?? $field['min'];
+                                $sliderMax = $field['ui_max'] ?? $field['max'];
                                 ?>
                                 <div class="range-controls">
                                     <input
@@ -1086,8 +1015,8 @@ textarea:focus {
                                         name="<?= htmlspecialchars($key) ?>"
                                         type="number"
                                         step="1"
-                                        min="<?= htmlspecialchars((string)$inputMin) ?>"
-                                        max="<?= htmlspecialchars((string)$inputMax) ?>"
+                                        min="<?= htmlspecialchars((string)$sliderMin) ?>"
+                                        max="<?= htmlspecialchars((string)$sliderMax) ?>"
                                         data-default="<?= htmlspecialchars((string)$field['default'], ENT_QUOTES, 'UTF-8') ?>"
                                         value="<?= htmlspecialchars((string)$data[$key]) ?>">
                                 </div>
