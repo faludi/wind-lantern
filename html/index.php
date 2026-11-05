@@ -2,6 +2,8 @@
 declare(strict_types=1);
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/settings_schema.php';
+require_once __DIR__ . '/settings_actions.php';
+require_once __DIR__ . '/wind_data.php';
 
 session_set_cookie_params([
     'httponly' => true,
@@ -109,88 +111,26 @@ try {
             } elseif (!$lantern || (int)($_POST['lantern_id'] ?? 0) !== (int)$lantern['id']) {
                 $errors[] = 'Lantern not found.';
             } else {
-                $rawAddress = (string)($_POST['address'] ?? '');
-                $address = trim(preg_replace('/[\r\n\/"\'\\\\;]+/m', ' ', $rawAddress) ?? '');
-                $address = preg_replace('/\s+/', ' ', $address) ?? '';
-                $data['address'] = $address;
-                if ($address === '') {
-                    $fieldErrors['Address'] = 'Address cannot be empty.';
-                } elseif (strlen($address) > 1024) {
-                    $fieldErrors['Address'] = 'Address must be 1024 characters or fewer.';
-                }
-
-                $settingValues = [];
-                foreach ($settingsFields as $key => $field) {
-                    if ($key === 'address') {
-                        continue;
-                    }
-                    if ($key === 'settings_endpoint' && !$currentUser['is_admin']) {
-                        $settingValues[$key] = $lantern[$key];
-                        continue;
-                    }
-                    $raw = (string)($_POST[$key] ?? '');
-                    $data[$key] = $raw;
-                    if ($field['type'] === 'url') {
-                        $url = trim($raw);
-                        $parts = filter_var($url, FILTER_VALIDATE_URL) ? parse_url($url) : false;
-                        if ($parts === false || !in_array(strtolower((string)($parts['scheme'] ?? '')), ['http', 'https'], true)) {
-                            $fieldErrors[$field['label']] = 'Settings Endpoint must be a valid HTTP or HTTPS URL.';
-                            $settingValues[$key] = null;
-                        } else {
-                            $settingValues[$key] = $url;
-                            $data[$key] = $url;
-                        }
-                    } else {
-                        $settingValues[$key] = $field['type'] === 'float'
-                            ? validate_float_range($raw, $field['min'], $field['max'], $field['label'], $fieldErrors)
-                            : validate_int_range($raw, (int)$field['min'], (int)$field['max'], $field['label'], $fieldErrors);
-                    }
-                }
+                $validation = validate_lantern_settings_submission(
+                    $_POST,
+                    $settingsFields,
+                    $lantern,
+                    $currentUser['is_admin']
+                );
+                $address = $validation['address'];
+                $settingValues = $validation['setting_values'];
+                $data = array_merge($data, $validation['data']);
+                $fieldErrors = $validation['field_errors'];
 
                 if (!$fieldErrors) {
-                    $changes = [];
-                    if ($address !== (string)$lantern['address']) {
-                        $changes[] = "Address: {$lantern['address']} -> $address";
-                    }
-                    foreach ($settingValues as $key => $value) {
-                        if ($settingsFields[$key]['type'] === 'url') {
-                            $hasChanged = $value !== (string)$lantern[$key];
-                        } elseif ($settingsFields[$key]['type'] === 'float') {
-                            $hasChanged = (float)$value !== (float)$lantern[$key];
-                        } else {
-                            $hasChanged = (int)$value !== (int)$lantern[$key];
-                        }
-                        if ($hasChanged) {
-                            $changes[] = "{$settingsFields[$key]['label']}: {$lantern[$key]} -> $value";
-                        }
-                    }
-
-                    $statement = $pdo->prepare(
-                        'UPDATE lanterns SET address = :address, settings_endpoint = :settings_endpoint,
-                         settings_update_interval = :settings_update_interval, lantern_brightness = :lantern_brightness,
-                         night_brightness = :night_brightness, night_start = :night_start, night_end = :night_end,
-                         color_temperature = :color_temperature, flicker_intensity = :flicker_intensity
-                         WHERE id = :id'
-                    );
-                    $statement->execute([
-                        'address' => $address,
-                        'settings_endpoint' => $settingValues['settings_endpoint'],
-                        'settings_update_interval' => $settingValues['settings_update_interval'],
-                        'lantern_brightness' => $settingValues['lantern_brightness'],
-                        'night_brightness' => $settingValues['night_brightness'],
-                        'night_start' => $settingValues['night_start'],
-                        'night_end' => $settingValues['night_end'],
-                        'color_temperature' => $settingValues['color_temperature'],
-                        'flicker_intensity' => $settingValues['flicker_intensity'],
-                        'id' => $lantern['id'],
-                    ]);
-                    $lantern = array_merge($lantern, ['address' => $address], $settingValues);
+                    $persisted = persist_lantern_settings($pdo, $lantern, $address, $settingValues, $settingsFields);
+                    $lantern = $persisted['lantern'];
                     $successMessage = 'Settings updated successfully.';
-                    if ($changes) {
+                    if ($persisted['changes']) {
                         @mail(
                             'rob@faludi.com',
                             'Wind Lantern Settings Update',
-                            "Lantern: {$lantern['mac_address']}\n" . implode("\n", $changes),
+                            "Lantern: {$lantern['mac_address']}\n" . implode("\n", $persisted['changes']),
                             'From: rob@faludi.com'
                         );
                     }
@@ -218,76 +158,9 @@ if ($lantern && ($_SERVER['REQUEST_METHOD'] !== 'POST' || ($_POST['action'] ?? '
 $windError = null;
 $windResult = null;
 $addr = trim($data['address']);
-
-if ($addr === '') {
-    $windError = 'Please enter and save an address first.';
-} else {
-    $encodedAddress = urlencode($addr);
-
-    // 1) Nominatim lookup
-    $nominatimUrl = "https://nominatim.openstreetmap.org/search?q={$encodedAddress}&format=json&limit=1";
-    $context = stream_context_create([
-        'http' => ['header' => "User-Agent: WindLantern/1.0\r\n"]
-    ]);
-    $nomResponse = @file_get_contents($nominatimUrl, false, $context);
-
-    if ($nomResponse === false) {
-        $windError = 'Failed to fetch coordinates.';
-    } else {
-        $nom = json_decode($nomResponse, true);
-        if (!$nom || !isset($nom[0]['lat'], $nom[0]['lon'])) {
-            $windError = 'No results found for the address.';
-        } else {
-            $lat = $nom[0]['lat'];
-            $lon = $nom[0]['lon'];
-
-            // 2) Open-Meteo weather lookup
-            $weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude={$lat}&longitude={$lon}&current=wind_speed_10m,wind_gusts_10m";
-            $weatherResponse = @file_get_contents($weatherUrl);
-
-            if ($weatherResponse === false) {
-                $windError = 'Failed to fetch weather.';
-            } else {
-                $weather = json_decode($weatherResponse, true);
-                $current = $weather['current'] ?? [];
-
-                if (!isset($current['wind_speed_10m'], $current['wind_gusts_10m'])) {
-                    $windError = 'Weather data incomplete.';
-                } else {
-                    $ws = $current['wind_speed_10m'];
-                    $wg = $current['wind_gusts_10m'];
-
-                    $latFloat = (float)$lat;
-                    $lonFloat = (float)$lon;
-
-                    // Zoomed-in map using bbox
-                    $delta = 0.002; // ~200m radius
-                    $minLon = $lonFloat - $delta;
-                    $minLat = $latFloat - $delta;
-                    $maxLon = $lonFloat + $delta;
-                    $maxLat = $latFloat + $delta;
-
-                    $bbox = $minLon . '%2C' . $minLat . '%2C' . $maxLon . '%2C' . $maxLat;
-                    $mapSrc  = "https://www.openstreetmap.org/export/embed.html?bbox={$bbox}&layer=mapnik&marker={$latFloat}%2C{$lonFloat}";
-                    $zoom    = 16;
-                    $mapLink = "https://www.openstreetmap.org/?mlat={$latFloat}&mlon={$lonFloat}#map={$zoom}/{$latFloat}/{$lonFloat}";
-
-                    $windResult = [
-                        'address'   => $addr,
-                        'lat'       => $latFloat,
-                        'lon'       => $lonFloat,
-                        'ws_kmh'    => $ws,
-                        'wg_kmh'    => $wg,
-                        'ws_mph'    => round($ws * 0.62137119, 2),
-                        'wg_mph'    => round($wg * 0.62137119, 2),
-                        'map_src'   => $mapSrc,
-                        'map_link'  => $mapLink,
-                    ];
-                }
-            }
-        }
-    }
-}
+$windData = fetch_wind_data($addr);
+$windError = $windData['error'];
+$windResult = $windData['result'];
 ?>
 <!doctype html>
 <html lang="en">

@@ -10,4 +10,5 @@ wind_lantern_db_config.php
 testing/*
 !testing/setup.md
 !testing/test_*.py
+!testing/test_*.php
 !testing/lantern_test.py

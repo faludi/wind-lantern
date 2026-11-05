@@ -8,6 +8,9 @@ A Wi-Fi-connected lantern whose LED flicker responds to local wind conditions. T
 
 - `main.py` starts the firmware, reads local settings, connects to Wi-Fi, and runs the weather/settings update loop alongside the candle-light thread.
 - `nature_api.py` provides Wi-Fi setup, location lookup, time synchronization, and weather requests. Wind speed and gust data come from Open-Meteo.
+- `weather_service.py` fetches current wind readings and normalizes timestamps and speed units for the firmware.
+- `clock_service.py` coordinates NTP synchronization and the cached lantern-local timezone offset used by night mode.
+- `runtime_schedule.py` tracks settings, periodic-work, and time-sync deadlines using MicroPython tick semantics.
 - `wind_manager.py` contains the wind/gust simulation shared by firmware and the hardware simulator.
 - `lantern_hardware.py` owns the LED pin mapping, PWM setup, and Wi-Fi setup-button input.
 - `lantern_config.py` defines firmware defaults and normalizes settings from local configuration and the server.
@@ -15,6 +18,9 @@ A Wi-Fi-connected lantern whose LED flicker responds to local wind conditions. T
 - `settings_state.py` owns the normalized runtime settings and applies partial updates.
 - `html/` contains the PHP dashboard and MySQL schema. The dashboard manages lantern accounts and settings.
 - `html/settings_schema.php` defines dashboard metadata and the typed settings payload returned to firmware.
+- `html/settings_actions.php` validates settings submissions and persists them after the dashboard checks login and CSRF.
+- `html/admin_actions.php` handles administrator account, lantern registration, user update, and firmware-queue actions.
+- `html/wind_data.php` fetches geocoding and current weather data for the dashboard's wind/map view.
 - `html/lantern_checkin.php` identifies an active lantern by its Wi-Fi MAC address and returns its current settings and any queued firmware-update request.
 
 The settings flow is:
@@ -39,6 +45,8 @@ The host test suite requires Python 3 and PHP CLI for cross-layer settings check
 
 ```sh
 python3 -m unittest discover -s testing -v
+php testing/test_settings_actions.php
+php testing/test_admin_actions.php
 ```
 
 The hardware simulator in `testing/lantern_test.py` requires a MicroPython environment and the lantern hardware connected. The host test suite does not require a Pico.

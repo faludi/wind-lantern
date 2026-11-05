@@ -19,13 +19,16 @@ import sys
 import network
 import ugit
 from nature_api import Client
+from clock_service import LanternClock
 from lantern_hardware import LanternHardware
+from runtime_schedule import RuntimeSchedule
 from wind_manager import WindManager
 from lantern_config import DEFAULT_SETTINGS
 from settings_store import load_settings, save_settings
 from settings_state import LanternSettings
+from weather_service import fetch_current_wind, format_weather_timestamp
 
-version = "1.0.71"
+version = "1.0.72"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -77,7 +80,6 @@ night_mode_fade_from = 100
 night_mode_fade_to = 100
 night_mode_fade_start = None
 initial_time_sync_complete = False
-cached_timezone_offset_hours = 0
 night_mode_next_update = 0
 NIGHT_MODE_UPDATE_INTERVAL_MS = 1000  # recompute night mode at most once per second
 PERIODIC_UPDATE_INTERVAL_MS = 15 * 60 * 1000  # check Wi-Fi and update weather every 15 minutes
@@ -99,6 +101,7 @@ if not setup_requested:  # a deliberate setup request should not wait out a rebo
 wdt = WDT(timeout=8388)  # 8-second watchdog timer
 
 nature_client = Client(ssid, password, debug_mode=False, watchdog=wdt)
+lantern_clock = LanternClock(nature_client)
 ipgeolocation_key = getattr(secrets, 'IPGEOLOCATION_API_KEY', None)
 if ipgeolocation_key:
     try:
@@ -191,52 +194,16 @@ def get_settings_url():
     """Build the remote settings URL identifying this lantern and firmware version."""
     return runtime_settings["settings_endpoint"] + '?mac=' + get_lantern_mac() + '&version=' + version
 
-def parse_datetime(timestamp):
-    """Convert an ISO 'YYYY-MM-DDTHH:MM' string to 'MM/DD/YYYY HH:MM UTC'."""
-    # Split the timestamp into date and time
-    date_str, time_str = timestamp.split('T')
-    # Extract year, month, day
-    year, month, day = date_str.split('-')
-    # Extract hours and minutes
-    hour, minute = time_str.split(':')
-    # Combine into final time format
-    formatted_time = f"{month}/{day}/{year} {hour:2}:{minute:2} UTC"
-    return(formatted_time)
-
-def fetch_weather_data():
-    """Fetch current wind speed/gusts (km/h); returns a dict or None on failure."""
-    try:
-        wdt.feed()
-        forecast = nature_client.get_weather("current", "wind_speed_10m,wind_gusts_10m", forecast_days=1, expiry=300)
-        if not forecast or forecast.get('wind_speed_10m') is None:
-            return None
-        timestamp = f"{time.gmtime()[0]:04}-{time.gmtime()[1]:02}-{time.gmtime()[2]:02}T{time.gmtime()[3]:02}:{time.gmtime()[4]:02}"
-        return {
-            'current': {
-                'wind_speed_10m': forecast.get('wind_speed_10m'),
-                'wind_gusts_10m': forecast.get('wind_gusts_10m'),
-                'time': timestamp
-            }
-        }
-    except Exception as e:
-        print('Error fetching weather data:', e)
-        return None
-    
 def fetch_and_display_weather_data():
     """Fetch current weather data and display the wind conditions."""
     try:
-        # Fetch and display weather data using nature_api
-        weather = fetch_weather_data()
-        if weather is not None:
-            # print('Weather Data:', weather)
-            wind_speed = weather['current']['wind_speed_10m']*0.27778
-            wind_gusts = weather['current']['wind_gusts_10m']*0.27778
-            timestamp = weather['current']['time']
-            wind_manager.set_wind(wind_speed, wind_gusts)
-            print('Timestamp:', parse_datetime(timestamp))
-            print(f"Speed: {weather['current']['wind_speed_10m']} kph, Gusts: {weather['current']['wind_gusts_10m']} kph")
-            print(f"Speed: {wind_speed * 2.23693629:.2f} mph, Gusts: {wind_gusts * 2.23693629:.2f} mph")
-            print(f"Speed {wind_speed:.2f} m/s, Gusts {wind_gusts:.2f} m/s")
+        reading = fetch_current_wind(nature_client, wdt)
+        if reading is not None:
+            wind_manager.set_wind(reading["wind_speed_mps"], reading["wind_gusts_mps"])
+            print('Timestamp:', format_weather_timestamp(reading["timestamp"]))
+            print(f"Speed: {reading['wind_speed_kph']} kph, Gusts: {reading['wind_gusts_kph']} kph")
+            print(f"Speed: {reading['wind_speed_mps'] * 2.23693629:.2f} mph, Gusts: {reading['wind_gusts_mps'] * 2.23693629:.2f} mph")
+            print(f"Speed {reading['wind_speed_mps']:.2f} m/s, Gusts {reading['wind_gusts_mps']:.2f} m/s")
             print("Wind factor:", wind_manager.wind_factor, "Gust factor:", wind_manager.gust_factor)
         else:
             print('No weather data available')
@@ -283,7 +250,7 @@ def fetch_address(url):
     
 async def update_settings():
     """Pull remote settings, resolve address to coordinates/timezone, save, and optionally update firmware."""
-    refresh_local_timezone_offset()
+    lantern_clock.refresh_local_offset()
     settings = fetch_address(get_settings_url())
     if settings is not None:
         remote_settings = settings.copy()
@@ -332,18 +299,6 @@ def scale_brightness(duty, brightness_override=None):
     brightness_level = min(max(brightness_override, 0), 100)
     return 100 - ((100 - duty) * brightness_level / 100)
 
-def refresh_local_timezone_offset():
-    """Look up the lantern's own UTC offset by public IP; keep the cached value if the lookup fails."""
-    global cached_timezone_offset_hours
-    offset_seconds = nature_client.get_local_timezone_offset()
-    if offset_seconds is not None:
-        cached_timezone_offset_hours = int(offset_seconds / 3600)
-        print('Local timezone offset (hours):', cached_timezone_offset_hours)
-
-def get_local_timezone_offset_hours():
-    """Return the cached lantern UTC offset in hours (no network I/O; safe for the LED thread)."""
-    return cached_timezone_offset_hours
-
 def is_night_window(local_hour, start_hour, end_hour):
     """True if local_hour falls in [start, end), supporting windows that wrap past midnight."""
     if start_hour == end_hour:
@@ -363,8 +318,7 @@ def update_night_mode_state():
         return night_mode_current
     night_mode_next_update = time.ticks_add(now, NIGHT_MODE_UPDATE_INTERVAL_MS)
 
-    offset_hours = get_local_timezone_offset_hours()
-    local_hour = (time.gmtime()[3] + offset_hours) % 24
+    local_hour = lantern_clock.local_hour(time.gmtime()[3])
     # print(f"Local hour: {local_hour}, Night start: {runtime_settings['night_start']}, Night end: {runtime_settings['night_end']}")
     target = runtime_settings["night_brightness"] if is_night_window(
         local_hour, runtime_settings["night_start"], runtime_settings["night_end"]
@@ -503,58 +457,51 @@ async def main():
         except Exception as e:
             print('Warning: initial location setup failed:', e)
 
-    initial_time_sync_succeeded = nature_client.sync_time()
+    initial_time_sync_succeeded = lantern_clock.sync_time()
     if not initial_time_sync_succeeded:
         print('NTP sync failed, continuing with local time if available.')
-    refresh_local_timezone_offset()
+    lantern_clock.refresh_local_offset()
     initial_time_sync_complete = True
 
-    next_periodic_update = time.ticks_ms()
-    next_settings_update = next_periodic_update
-    next_time_sync = time.ticks_add(
-        next_periodic_update,
-        TIME_SYNC_INTERVAL_MS if initial_time_sync_succeeded else PERIODIC_UPDATE_INTERVAL_MS,
+    schedule = RuntimeSchedule(
+        time,
+        PERIODIC_UPDATE_INTERVAL_MS,
+        TIME_SYNC_INTERVAL_MS,
+        initial_time_sync_succeeded,
     )
     first_cycle_complete = False
     while True:
         wdt.feed()
         now = time.ticks_ms()
-        if time.ticks_diff(now, next_settings_update) >= 0:
+        if schedule.settings_due(now):
             await update_settings()
-            next_settings_update = time.ticks_add(
+            schedule.schedule_settings_update(
                 time.ticks_ms(), runtime_settings["settings_update_interval"] * 60 * 1000
             )
 
-        if time.ticks_diff(time.ticks_ms(), next_periodic_update) >= 0:
+        if schedule.periodic_due(time.ticks_ms()):
             if not nature_client.wifi_connected:
                 break  # exit if no connection
-            if time.ticks_diff(time.ticks_ms(), next_time_sync) >= 0:
+            if schedule.time_sync_due(time.ticks_ms()):
                 try:
                     print('Syncing time via NTP...')
                     wdt.feed()
-                    if nature_client.sync_time():
+                    if lantern_clock.sync_time():
                         print(f"DateTime: {time.gmtime()[0]}-{time.gmtime()[1]:02}-{time.gmtime()[2]:02} {time.gmtime()[3]:02}:{time.gmtime()[4]:02}:{time.gmtime()[5]:02} UTC  ")
-                        next_time_sync = time.ticks_add(
-                            time.ticks_ms(), TIME_SYNC_INTERVAL_MS
-                        )
+                        schedule.schedule_time_sync(time.ticks_ms())
                     else:
                         print("NTP sync failed; retrying in 15 minutes.")
                 except Exception as e:
                     print("Failed to update NTP; retrying in 15 minutes.", e)
             fetch_and_display_weather_data()
-            next_periodic_update = time.ticks_add(
-                time.ticks_ms(), PERIODIC_UPDATE_INTERVAL_MS
-            )
+            schedule.schedule_periodic_update(time.ticks_ms())
 
         if not first_cycle_complete:
             # Made it through one full cycle without a watchdog/crash reboot; stop backing off.
             clear_reboot_backoff()
             first_cycle_complete = True
 
-        now = time.ticks_ms()
-        settings_wait = max(time.ticks_diff(next_settings_update, now), 0)
-        periodic_wait = max(time.ticks_diff(next_periodic_update, now), 0)
-        await wait_with_watchdog(min(settings_wait, periodic_wait))
+        await wait_with_watchdog(schedule.wait_ms(time.ticks_ms()))
 
 # Create an Event Loop
 loop = asyncio.get_event_loop()

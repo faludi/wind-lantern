@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/admin_actions.php';
 
 session_set_cookie_params([
     'httponly' => true,
@@ -31,82 +32,21 @@ try {
             verify_csrf();
         }
 
-        if (!$hasUsers) {
-            $adminUsername = trim((string)($_POST['admin_username'] ?? ''));
-            $adminPassword = (string)($_POST['admin_password'] ?? '');
-            if ($adminUsername === '' || strlen($adminPassword) < 12) {
-                $errors[] = 'The administrator username is required and the password must be at least 12 characters.';
-            } else {
-                $statement = $pdo->prepare('INSERT INTO users (username, password_hash, is_admin) VALUES (:username, :password_hash, 1)');
-                $statement->execute([
-                    'username' => $adminUsername,
-                    'password_hash' => password_hash($adminPassword, PASSWORD_DEFAULT),
-                ]);
-                session_regenerate_id(true);
-                $_SESSION['user_id'] = (int)$pdo->lastInsertId();
-                $_SESSION['username'] = $adminUsername;
-                $_SESSION['is_admin'] = true;
-                $_SESSION['last_activity'] = time();
-                redirect_to('admin.php');
-            }
-        } else {
-            $action = (string)($_POST['action'] ?? 'create_lantern');
-            if ($action === 'create_lantern') {
-                $mac = normalize_mac((string)($_POST['mac_address'] ?? ''));
-                $address = trim((string)($_POST['address'] ?? ''));
-                $username = trim((string)($_POST['username'] ?? ''));
-                $password = (string)($_POST['password'] ?? '');
-                if ($mac === null) $errors[] = 'Enter a valid 12-digit lantern MAC address.';
-                if ($address === '' || strlen($address) > 1024) $errors[] = 'Enter an address up to 1024 characters.';
-                if ($username === '' || strlen($username) > 100) $errors[] = 'Enter an owner username up to 100 characters.';
-                if (strlen($password) < 12) $errors[] = 'The lantern owner password must be at least 12 characters.';
+        $actionResult = handle_admin_post($pdo, $hasUsers, $_POST);
+        $errors = array_merge($errors, $actionResult['errors']);
+        $success = $actionResult['success'];
 
-                if (!$errors) {
-                    $pdo->beginTransaction();
-                    $statement = $pdo->prepare('INSERT INTO users (username, password_hash, is_admin) VALUES (:username, :password_hash, 0)');
-                    $statement->execute([
-                        'username' => $username,
-                        'password_hash' => password_hash($password, PASSWORD_DEFAULT),
-                    ]);
-                    $ownerId = (int)$pdo->lastInsertId();
-                    $statement = $pdo->prepare('INSERT INTO lanterns (mac_address, user_id, address) VALUES (:mac, :user_id, :address)');
-                    $statement->execute(['mac' => $mac, 'user_id' => $ownerId, 'address' => $address]);
-                    $pdo->commit();
-                    $success = 'Lantern account created.';
-                }
-            } elseif ($action === 'update_user') {
-                $userId = filter_var($_POST['user_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-                $username = trim((string)($_POST['username'] ?? ''));
-                $password = (string)($_POST['password'] ?? '');
-                if ($userId === false) $errors[] = 'User not found.';
-                if ($username === '' || strlen($username) > 100) $errors[] = 'Enter a username up to 100 characters.';
-                if ($password !== '' && strlen($password) < 12) $errors[] = 'A replacement password must be at least 12 characters.';
-                if (!$errors) {
-                    $sql = $password === ''
-                        ? 'UPDATE users SET username = :username WHERE id = :id'
-                        : 'UPDATE users SET username = :username, password_hash = :password_hash WHERE id = :id';
-                    $statement = $pdo->prepare($sql);
-                    $params = ['username' => $username, 'id' => $userId];
-                    if ($password !== '') $params['password_hash'] = password_hash($password, PASSWORD_DEFAULT);
-                    $statement->execute($params);
-                    if ((int)($_SESSION['user_id'] ?? 0) === (int)$userId) {
-                        $_SESSION['username'] = $username;
-                    }
-                    $success = 'User updated.';
-                }
-            } elseif ($action === 'set_firmware_update') {
-                $lanternId = filter_var($_POST['lantern_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-                if ($lanternId === false) {
-                    $errors[] = 'Lantern not found.';
-                } else {
-                    $enabled = ($_POST['update_firmware'] ?? '') === '1' ? 1 : 0;
-                    $statement = $pdo->prepare('UPDATE lanterns SET update_firmware = :enabled WHERE id = :id');
-                    $statement->execute(['enabled' => $enabled, 'id' => $lanternId]);
-                    $success = $enabled ? 'Firmware update queued for next check-in.' : 'Firmware update cancelled.';
-                }
-            } else {
-                $errors[] = 'Unknown administration action.';
-            }
+        if ($actionResult['created_admin'] !== null) {
+            session_regenerate_id(true);
+            $_SESSION['user_id'] = $actionResult['created_admin']['id'];
+            $_SESSION['username'] = $actionResult['created_admin']['username'];
+            $_SESSION['is_admin'] = true;
+            $_SESSION['last_activity'] = time();
+            redirect_to('admin.php');
+        }
+        if ($actionResult['updated_user'] !== null
+            && (int)($_SESSION['user_id'] ?? 0) === $actionResult['updated_user']['id']) {
+            $_SESSION['username'] = $actionResult['updated_user']['username'];
         }
     }
 
