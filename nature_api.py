@@ -8,7 +8,7 @@ from Url_encode import url_encode, form_decode
 import machine
 import ntptime
 
-__version__ = "0.1.17"
+__version__ = "0.1.18"
 
 class WifiProvisioningError(Exception):
     """Base class for Wi-Fi provisioning failures."""
@@ -20,7 +20,7 @@ class WifiProvisioningTimeout(WifiProvisioningError):
     """No valid credentials were submitted before the provisioning timeout."""
 
 _DEFAULT_PORTAL_INSTRUCTIONS = (
-    "1. Enter your Wi-Fi network name and password, then select Connect. Leave the password blank only for an open network.\n"
+    "1. Select your Wi-Fi network and enter its password, then select Connect. Leave the password blank only for an open network.\n"
     "2. If the connection is unsuccessful, check the network name and password, then try again.\n"
     "3. On success, the lantern will restart and connect to your Wi-Fi automatically."
 )
@@ -34,6 +34,13 @@ _PORTAL_PAGE = (
     'input[type=text],input[type=password]{{box-sizing:border-box;width:100%;font-size:18px;padding:12px;'
     'border:2px solid #555;border-radius:8px;background:#fff;color:#000;-webkit-appearance:none;appearance:none}}'
     'input[type=text]:focus,input[type=password]:focus{{outline:none;border-color:#007aff;box-shadow:0 0 0 3px #b3d4ff}}'
+    'fieldset{{border:0;padding:0;margin:1.2em 0 0;min-width:0}}'
+    'legend{{font-weight:600;margin-bottom:.4em}}'
+    '.networks{{max-height:14em;overflow-y:auto;border:1px solid #aaa;border-radius:6px;overscroll-behavior:contain}}'
+    '.network{{display:flex;align-items:center;gap:.7em;font-weight:normal;margin:0;padding:.75em;'
+    'border-bottom:1px solid #ddd;overflow-wrap:anywhere}}'
+    '.network:last-child{{border-bottom:0}}'
+    '.network input{{flex:none;width:20px;height:20px;margin:0}}'
     '.show{{display:flex;align-items:center;font-weight:normal;margin:.8em 0}}'
     '.show input{{width:22px;height:22px;margin:0 .6em 0 0}}'
     'button{{width:100%;font-size:18px;font-weight:600;padding:14px;margin-top:1em;border:0;border-radius:8px;'
@@ -43,13 +50,16 @@ _PORTAL_PAGE = (
     '<body>'
     '<h2>Wi-Fi Setup</h2>{msg}<div style="white-space:pre-wrap;line-height:1.5">{instructions}</div>'
     '<form method="POST" action="/save">'
-    '<label for="s">Network name (SSID)</label>'
-    '<input id="s" type="text" name="ssid" list="n" maxlength="32" required value="{ssid}" '
-    'autocapitalize="none" autocorrect="off" spellcheck="false">'
-    '<datalist id="n">{opts}</datalist>'
-    '<label for="pw">Password<br><span class="hint">8-63 characters, leave blank for an open network</span></label>'
-    '<input name="password" id="pw" type="password" maxlength="63" autocapitalize="none" autocorrect="off">'
-    '<label class="show"><input type="checkbox" onclick="document.getElementById(\'pw\').type=this.checked?\'text\':\'password\'"> Show password</label>'
+    '<fieldset onchange="updateNetwork()"><legend>Nearby networks</legend>{opts}'
+    '<div id="manual"><label for="s">Other network name (SSID)</label>'
+    '<input id="s" type="text" name="ssid" maxlength="32" value="{ssid}" '
+    'autocapitalize="none" autocorrect="off" spellcheck="false"></div></fieldset>'
+    '<script>function updateNetwork(){{var selected=document.getElementById("other").checked;'
+    'document.getElementById("manual").hidden=!selected;document.getElementById("s").required=selected;}}'
+    'updateNetwork();</script>'
+    '<label for="wifi-key">Passphrase<br><span class="hint">8-63 characters, leave blank for an open network</span></label>'
+    '<input name="wifi_key" id="wifi-key" type="password" maxlength="63" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false">'
+    '<label class="show"><input type="checkbox" onchange="document.getElementById(\'wifi-key\').type=this.checked?\'text\':\'password\'"> Show passkey</label>'
     '<button type="submit">Connect</button></form>'
     '<footer style="margin-top:5em;color:#666;font-size:0.75em;line-height:1.5">'
     'Device MAC: {device_mac}<br>Firmware version: {firmware_version}<br>'
@@ -66,6 +76,16 @@ _MESSAGE_PAGE = (
 def _html_escape(text):
     return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             .replace('"', "&quot;").replace("'", "&#39;"))
+
+def _provisioning_ssid(form, ssids):
+    choice = form.get("network", "")
+    if choice == "other":
+        return form.get("ssid", "")
+    try:
+        index = int(choice)
+    except ValueError:
+        return ""
+    return ssids[index] if 0 <= index < len(ssids) else ""
 
 class Client:
     def __init__(self, ssid, password, debug_mode=False, watchdog=None):
@@ -224,8 +244,8 @@ class Client:
                             self._send_http(conn, "302 Found", "", "Location: http://192.168.4.1/\r\n")
                         continue
 
-                    new_ssid = form.get("ssid", "")
-                    new_pass = form.get("password", "")
+                    new_ssid = _provisioning_ssid(form, ssids)
+                    new_pass = form.get("wifi_key", form.get("password", ""))
                     if not 1 <= len(new_ssid.encode()) <= 32:
                         error = "The network name must be 1-32 characters."
                     elif new_pass and not 8 <= len(new_pass) <= 63:
@@ -354,12 +374,20 @@ class Client:
 
     def _portal_form(self, ssids, error, ssid_hint, device_mac, firmware_version,
                      instructions=_DEFAULT_PORTAL_INSTRUCTIONS):
-        opts = "".join('<option value="%s">' % _html_escape(s) for s in ssids)
+        opts = "".join(
+            '<label class="network"><input type="radio" name="network" value="%d" required%s> %s</label>'
+            % (index, " checked" if ssid_hint == ssid else "", _html_escape(ssid))
+            for index, ssid in enumerate(ssids)
+        )
+        other_selected = (bool(ssid_hint) and ssid_hint not in ssids) or not ssids
+        other = ('<label class="network"><input id="other" type="radio" name="network" '
+             'value="other" required%s> Other network</label>' % (" checked" if other_selected else ""))
+        opts = ('<p>No nearby networks found.</p>' if not ssids else '') + '<div class="networks">%s%s</div>' % (opts, other)
         msg = '<p style="color:#b00"><b>%s</b></p>' % _html_escape(error) if error else ""
         return _PORTAL_PAGE.format(
             msg=msg,
             instructions=_html_escape(instructions),
-            ssid=_html_escape(ssid_hint),
+            ssid=_html_escape(ssid_hint if other_selected else ""),
             opts=opts,
             device_mac=_html_escape(device_mac),
             firmware_version=_html_escape(str(firmware_version)),

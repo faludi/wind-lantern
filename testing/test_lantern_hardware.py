@@ -1,4 +1,6 @@
+import ast
 import unittest
+from pathlib import Path
 
 from lantern_hardware import LanternHardware
 
@@ -82,6 +84,28 @@ class LanternHardwareTests(unittest.TestCase):
         self.assertEqual(button.mode, FakePin.IN)
         self.assertEqual(button.pull, FakePin.PULL_UP)
         self.assertEqual(delays, [50])
+
+    def test_setup_status_controls_blue_outputs_and_clears_them(self):
+        hardware = self.create_hardware()
+        main_path = Path(__file__).resolve().parents[1] / "main.py"
+        main_module = ast.parse(main_path.read_text())
+        status_nodes = [
+            node for node in main_module.body
+            if (isinstance(node, ast.FunctionDef) and node.name in ("set_led_color", "setup_status_led"))
+            or (isinstance(node, ast.Assign) and any(
+                isinstance(target, ast.Name) and target.id == "SETUP_STATUS_COLORS"
+                for target in node.targets
+            ))
+        ]
+        namespace = {"hardware": hardware}
+        exec(compile(ast.Module(body=status_nodes, type_ignores=[]), str(main_path), "exec"), namespace)
+
+        for state in ("connecting", "failed", "success", "timeout"):
+            namespace["setup_status_led"]("ap_started")
+            self.assertEqual((hardware.blue.value(), hardware.blue_2.value()), (0, 0))
+            self.assertEqual([pwm.duty for pwm in FakePWM.instances], [65535] * 4)
+            namespace["setup_status_led"](state)
+            self.assertEqual((hardware.blue.value(), hardware.blue_2.value()), (1, 1))
 
 
 if __name__ == "__main__":

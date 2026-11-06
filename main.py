@@ -28,7 +28,7 @@ from settings_store import load_settings, save_settings
 from settings_state import LanternSettings
 from weather_service import fetch_current_wind, format_weather_timestamp
 
-version = "1.0.72"
+version = "1.0.72a"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -123,8 +123,8 @@ def get_lantern_mac():
     return ''.join('{:02X}'.format(value) for value in mac_bytes)
 
 def set_led_color(red, green, blue):
-    """Set both LED sets from 0-100 brightness values (outputs are inverted: 100 = off)."""
-    hardware.set_status_color(red, green)
+    """Set both LED sets; blue is a digital on/off output."""
+    hardware.set_status_color(red, green, blue)
 
 SETUP_STATUS_COLORS = {
     "ap_started": (0, 0, 80),
@@ -176,7 +176,7 @@ def run_wifi_setup():
             on_status=setup_status_led,
             firmware_version=version,
             instructions=(
-                "Enter your Wi-Fi network name and password.\n"
+                "Select your Wi-Fi network and enter its password.\n"
                 "On success, this form closes automatically.\n"
             ),
         )

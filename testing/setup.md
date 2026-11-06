@@ -16,6 +16,7 @@ The PHP application in `html/` stores users, lanterns, and their settings in MyS
 1. Install MicroPython on the Pico W and copy the current firmware files from the repository to its filesystem. `main.py` is the startup module.
 2. Create `secrets.py` from `secrets-example.py` and set the Wi-Fi network name and password. Do not commit the completed secrets file.
 3. On startup, the firmware loads `config.json`, connects to Wi-Fi, and checks in with the configured settings endpoint. If the device has not been configured for Wi-Fi, hold the setup button low on GP16 during startup to launch the `WindLantern-Setup-<last-four-MAC>` access point. The portal is open and remains available for up to ten minutes.
+	Select a nearby network from the list, or select Other network and enter its name for a hidden or unlisted network. The list contains up to 20 networks found when setup started, ordered by signal strength.
 4. Register the device's MAC address in the admin page. The first successful check-in receives its address and settings; the firmware periodically checks again based on `settings_update_interval`.
 5. To request a firmware update, queue it for the lantern in the admin page. The next check-in claims the one-time request, and the device pulls the firmware repository and restarts.
 
