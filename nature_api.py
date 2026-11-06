@@ -59,7 +59,7 @@ _PORTAL_PAGE = (
     'updateNetwork();</script>'
     '<label for="wifi-key">Passphrase<br><span class="hint">8-63 characters, leave blank for an open network</span></label>'
     '<input name="wifi_key" id="wifi-key" type="password" maxlength="63" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false">'
-    '<label class="show"><input type="checkbox" onchange="document.getElementById(\'wifi-key\').type=this.checked?\'text\':\'password\'"> Show passkey</label>'
+    '<label class="show"><input type="checkbox" onchange="document.getElementById(\'wifi-key\').type=this.checked?\'text\':\'password\'"> Show passphrase</label>'
     '<button type="submit">Connect</button></form>'
     '<footer style="margin-top:5em;color:#666;font-size:0.75em;line-height:1.5">'
     'Device MAC: {device_mac}<br>Firmware version: {firmware_version}<br>'
