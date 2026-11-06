@@ -7,8 +7,9 @@ import requests
 from Url_encode import url_encode, form_decode
 import machine
 import ntptime
+import json
 
-__version__ = "0.1.18"
+__version__ = "0.1.19"
 
 class WifiProvisioningError(Exception):
     """Base class for Wi-Fi provisioning failures."""
@@ -49,7 +50,8 @@ _PORTAL_PAGE = (
     '</style></head>'
     '<body>'
     '<h2>Wi-Fi Setup</h2>{msg}<div style="white-space:pre-wrap;line-height:1.5">{instructions}</div>'
-    '<form method="POST" action="/save">'
+    '<p id="form-status" role="status" aria-live="polite" hidden>Connecting to the network...</p>'
+    '<form method="POST" action="/save" onsubmit="document.getElementById(\'form-status\').hidden=false">'
     '<fieldset onchange="updateNetwork()"><legend>Nearby networks</legend>{opts}'
     '<div id="manual"><label for="s">Other network name (SSID)</label>'
     '<input id="s" type="text" name="ssid" maxlength="32" value="{ssid}" '
@@ -71,6 +73,26 @@ _MESSAGE_PAGE = (
     '<title>Device Wi-Fi Setup</title></head>'
     '<body style="font-family:sans-serif;max-width:24em;margin:1em auto;padding:0 1em">'
     '<h2>{title}</h2><p>{text}</p></body></html>'
+)
+
+_WAIT_PAGE = (
+    '<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'
+    '<title>Device Wi-Fi Setup</title><style>'
+    'body{font-family:-apple-system,sans-serif;max-width:24em;margin:1em auto;padding:0 1em;color:#111}'
+    'button,a{font-size:18px}button{padding:12px 24px} [hidden]{display:none!important}'
+    '</style></head><body><h2>Wi-Fi Setup</h2>'
+    '<p id="status" role="status" aria-live="polite">Connecting to the network...</p>'
+    '<p id="detail">If this page disconnects, the green lantern lights indicate setup is complete.</p>'
+    '<form id="done" method="POST" action="/finish" hidden><button type="submit">Done</button></form>'
+    '<p id="retry" hidden><a href="/">Try again</a></p>'
+    '<script>function check(){fetch("/status",{cache:"no-store"}).then(function(r){return r.json()}).then(function(s){'
+    'if(s.state==="success"){document.getElementById("status").textContent="Connected to "+s.ssid+".";'
+    'document.getElementById("detail").textContent="Setup is complete. The lantern will restart.";'
+    'document.getElementById("done").hidden=false;}'
+    'else if(s.state==="failed"||s.state==="ended"){document.getElementById("status").textContent=s.error;'
+    'document.getElementById("detail").textContent="";document.getElementById("retry").hidden=s.state==="ended";}'
+    'else{setTimeout(check,1500)}}).catch(function(){setTimeout(check,2000)})}check();</script>'
+    '<noscript><meta http-equiv="refresh" content="3;url=/status-page"></noscript></body></html>'
 )
 
 def _html_escape(text):
@@ -167,11 +189,12 @@ class Client:
         machine.reset()
 
     def provision_wifi(self, ap_ssid="NatureAPI-Setup", ap_password=None, timeout=300, max_attempts=1, on_status=None,
-                       firmware_version=None, instructions=_DEFAULT_PORTAL_INSTRUCTIONS):
+                       firmware_version=None, instructions=_DEFAULT_PORTAL_INSTRUCTIONS, on_connected=None):
         """Start an access point with a Wi-Fi setup page and return (ssid, password) once verified.
 
         Raises WifiConnectError after max_attempts failed connections, or WifiProvisioningTimeout
         after timeout seconds. on_status(state) receives: ap_started, connecting, failed, success, timeout.
+        on_connected(ssid, password), when provided, must complete before success is reported.
         firmware_version is an optional version string displayed on the setup page.
         """
         if ap_password is not None and not 8 <= len(ap_password) <= 63:
@@ -196,6 +219,9 @@ class Client:
         attempts = 0
         error = ""
         ssid_hint = ""
+        state = "idle"
+        pending = None
+        result_deadline = None
         deadline = time.ticks_add(time.ticks_ms(), int(timeout * 1000))
         try:
             if ap_password:
@@ -222,8 +248,49 @@ class Client:
             dns.setblocking(False)
             notify("ap_started")
 
-            while time.ticks_diff(deadline, time.ticks_ms()) > 0:
+            while True:
                 feed()
+                now = time.ticks_ms()
+                if result_deadline is not None and time.ticks_diff(result_deadline, now) <= 0:
+                    if connected:
+                        return self.ssid, self.password
+                    raise WifiConnectError("Could not connect to the submitted Wi-Fi network")
+                if result_deadline is None and pending is None and time.ticks_diff(deadline, now) <= 0:
+                    break
+                if pending is not None:
+                    new_ssid, new_pass = pending
+                    pending = None
+                    time.sleep_ms(250)
+                    try:
+                        joined = self._try_sta_connect(sta, new_ssid, new_pass)
+                    except (OSError, ValueError):
+                        joined = False
+                    if joined:
+                        try:
+                            if on_connected:
+                                on_connected(new_ssid, new_pass)
+                        except Exception as e:
+                            print("Wi-Fi credential save failed:", e)
+                            error = "Could not save the network settings. Please try again."
+                            state = "failed"
+                            notify("failed")
+                        else:
+                            self.ssid = new_ssid
+                            self.password = new_pass
+                            self.wifi_connected = True
+                            connected = True
+                            state = "success"
+                            result_deadline = time.ticks_add(time.ticks_ms(), 30000)
+                            notify("success")
+                    else:
+                        attempts += 1
+                        notify("failed")
+                        error = "Could not connect. Check the name and passphrase and try again."
+                        state = "failed"
+                        if attempts >= max_attempts:
+                            state = "ended"
+                            error = "Could not join the network. Setup has ended."
+                            result_deadline = time.ticks_add(time.ticks_ms(), 30000)
                 self._serve_dns(dns)
                 try:
                     conn, _ = http.accept()
@@ -236,14 +303,40 @@ class Client:
                     if request is None:
                         continue
                     method, path, form = request
+                    if method == "GET" and path == "/status":
+                        self._send_http(conn, "200 OK", json.dumps({"state": state, "ssid": ssid_hint, "error": error}),
+                                        "Cache-Control: no-store\r\n", "application/json")
+                        continue
+                    if method == "GET" and path == "/status-page":
+                        if state == "success":
+                            page = _MESSAGE_PAGE.format(title="Connected", text="The device joined " + _html_escape(ssid_hint) + ".")
+                            page = page.replace("</body>", '<form method="POST" action="/finish"><button type="submit">Done</button></form></body>')
+                        elif state in ("failed", "ended"):
+                            page = _MESSAGE_PAGE.format(title="Connection failed", text=_html_escape(error))
+                            if state == "failed":
+                                page = page.replace("</body>", '<p><a href="/">Try again</a></p></body>')
+                        else:
+                            page = _WAIT_PAGE
+                        self._send_http(conn, "200 OK", page, "Cache-Control: no-store\r\n")
+                        continue
+                    if method == "POST" and path == "/finish" and connected:
+                        try:
+                            self._send_http(conn, "200 OK", _MESSAGE_PAGE.format(title="Setup complete", text="The lantern is restarting."))
+                        except OSError:
+                            pass
+                        return self.ssid, self.password
                     if not (method == "POST" and path == "/save"):
                         if method == "GET" and path == "/":
-                            self._send_http(conn, "200 OK", self._portal_form(
-                                ssids, error, ssid_hint, device_mac, display_firmware_version, instructions))
+                            page = _WAIT_PAGE if connected or state == "ended" else self._portal_form(
+                                ssids, error, ssid_hint, device_mac, display_firmware_version, instructions)
+                            self._send_http(conn, "200 OK", page)
                         else:
                             self._send_http(conn, "302 Found", "", "Location: http://192.168.4.1/\r\n")
                         continue
 
+                    if connected or state == "ended":
+                        self._send_http(conn, "200 OK", _WAIT_PAGE)
+                        continue
                     new_ssid = _provisioning_ssid(form, ssids)
                     new_pass = form.get("wifi_key", form.get("password", ""))
                     if not 1 <= len(new_ssid.encode()) <= 32:
@@ -261,29 +354,20 @@ class Client:
                     notify("connecting")
                     if self.debug_mode:
                         print("Provisioning: trying SSID", new_ssid, "with password ****")
-                    if self._try_sta_connect(sta, new_ssid, new_pass):
-                        self.ssid = new_ssid
-                        self.password = new_pass
-                        self.wifi_connected = True
-                        self._send_http(conn, "200 OK", _MESSAGE_PAGE.format(
-                            title="Connected", text="The device joined " + _html_escape(new_ssid) + ". You can close this page."))
-                        connected = True
-                        notify("success")
-                        return new_ssid, new_pass
-
-                    attempts += 1
-                    notify("failed")
-                    if attempts >= max_attempts:
-                        self._send_http(conn, "200 OK", _MESSAGE_PAGE.format(
-                            title="Connection failed", text="Could not join the network. Setup has ended."))
-                        raise WifiConnectError("Could not connect to the submitted Wi-Fi network")
-                    error = "Could not connect. Check the name and password and try again."
-                    self._send_http(conn, "200 OK", self._portal_form(
-                        ssids, error, ssid_hint, device_mac, display_firmware_version, instructions))
+                    state = "connecting"
+                    error = ""
+                    pending = (new_ssid, new_pass)
+                    try:
+                        self._send_http(conn, "200 OK", _WAIT_PAGE, "Cache-Control: no-store\r\n")
+                    except OSError:
+                        pass
                 except (OSError, ValueError):
                     continue
                 finally:
-                    conn.close()
+                    try:
+                        conn.close()
+                    except OSError:
+                        pass
 
             notify("timeout")
             raise WifiProvisioningTimeout("Wi-Fi provisioning timed out")
@@ -366,10 +450,10 @@ class Client:
                 form[form_decode(key)] = form_decode(value)
         return parts[0], parts[1].split("?")[0], form
 
-    def _send_http(self, conn, status, body, extra_headers=""):
+    def _send_http(self, conn, status, body, extra_headers="", content_type="text/html"):
         payload = body.encode()
-        header = "HTTP/1.1 %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\nConnection: close\r\n%s\r\n" % (
-            status, len(payload), extra_headers)
+        header = "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: close\r\n%s\r\n" % (
+            status, content_type, len(payload), extra_headers)
         conn.sendall(header.encode() + payload)
 
     def _portal_form(self, ssids, error, ssid_hint, device_mac, firmware_version,

@@ -28,7 +28,7 @@ from settings_store import load_settings, save_settings
 from settings_state import LanternSettings
 from weather_service import fetch_current_wind, format_weather_timestamp
 
-version = "1.0.72a"
+version = "1.0.72b"
 print("Wind Lantern NatureAPI - Version:", version)
 
 time.sleep(2) # allow usb connection on startup
@@ -174,13 +174,13 @@ def run_wifi_setup():
             timeout=SETUP_AP_TIMEOUT_SECONDS,
             max_attempts=SETUP_AP_MAX_ATTEMPTS,
             on_status=setup_status_led,
+            on_connected=save_wifi_credentials,
             firmware_version=version,
             instructions=(
                 "Select your Wi-Fi network and enter its password.\n"
-                "On success, this form closes automatically.\n"
+                "The lantern will restart when setup is complete.\n"
             ),
         )
-        save_wifi_credentials(new_ssid, new_password)
         print("Wi-Fi credentials saved for:", new_ssid, "- rebooting")
     except Exception as e:
         print("Wi-Fi setup failed, rebooting:", e)
