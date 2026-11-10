@@ -480,6 +480,22 @@ textarea:focus {
     align-items: center;
     gap: 12px;
 }
+.settings-form .temperature-control {
+    display: grid;
+    gap: 4px;
+}
+.settings-form .temperature-labels {
+    display: flex;
+    justify-content: space-between;
+    position: relative;
+    color: #8b7a67;
+    font-size: 0.78rem;
+}
+.settings-form .temperature-labels span:nth-child(2) {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+}
 .settings-form input[type="range"] {
     width: 100%;
     margin: 0;
@@ -857,7 +873,9 @@ textarea:focus {
                                 <?php continue; ?>
                             <?php endif; ?>
                             <label for="<?= htmlspecialchars($key) ?>"><?= htmlspecialchars($field['label']) ?></label>
-                            <div class="field-hint"><?= htmlspecialchars($field['hint']) ?></div>
+                            <?php if ($field['hint'] !== ''): ?>
+                                <div class="field-hint"><?= htmlspecialchars($field['hint']) ?></div>
+                            <?php endif; ?>
                             <?php if ($key === 'address'): ?>
                                 <textarea id="address" name="address"><?= htmlspecialchars((string)$data['address']) ?></textarea>
                             <?php elseif ($field['type'] === 'url'): ?>
@@ -873,6 +891,25 @@ textarea:focus {
                                 $sliderMin = $field['ui_min'] ?? $field['min'];
                                 $sliderMax = $field['ui_max'] ?? $field['max'];
                                 ?>
+                                <?php if ($key === 'color_temperature'): ?>
+                                    <div class="temperature-control">
+                                        <input
+                                            id="<?= htmlspecialchars($key) ?>"
+                                            name="<?= htmlspecialchars($key) ?>"
+                                            type="range"
+                                            min="<?= htmlspecialchars((string)$sliderMin) ?>"
+                                            max="<?= htmlspecialchars((string)$sliderMax) ?>"
+                                            step="1"
+                                            data-default="<?= htmlspecialchars((string)$field['default'], ENT_QUOTES, 'UTF-8') ?>"
+                                            value="<?= htmlspecialchars((string)$data[$key]) ?>"
+                                            aria-label="<?= htmlspecialchars($field['label']) ?>">
+                                        <div class="temperature-labels" aria-hidden="true">
+                                            <span>Yellow</span>
+                                            <span>Normal</span>
+                                            <span>Red</span>
+                                        </div>
+                                    </div>
+                                <?php else: ?>
                                 <div class="range-controls">
                                     <input
                                         id="<?= htmlspecialchars($key) ?>_slider"
@@ -893,6 +930,7 @@ textarea:focus {
                                         data-default="<?= htmlspecialchars((string)$field['default'], ENT_QUOTES, 'UTF-8') ?>"
                                         value="<?= htmlspecialchars((string)$data[$key]) ?>">
                                 </div>
+                                    <?php endif; ?>
                             <?php else: ?>
                                 <input
                                     id="<?= htmlspecialchars($key) ?>"

@@ -17,6 +17,14 @@ function lantern_settings_schema(): array {
             'max' => 100,
             'default' => 100,
         ],
+        'night_brightness' => [
+            'label' => 'Night Brightness',
+            'hint' => 'Percent of full brightness at night, 0 to 100, default 20',
+            'type' => 'int',
+            'min' => 0,
+            'max' => 100,
+            'default' => 20,
+        ],
         'night_start' => [
             'label' => 'Night Start',
             'hint' => 'Hour when night mode begins.',
@@ -33,17 +41,9 @@ function lantern_settings_schema(): array {
             'max' => 23,
             'default' => 8,
         ],
-        'night_brightness' => [
-            'label' => 'Night Brightness',
-            'hint' => 'Percent of full brightness at night, 0 to 100, default 20',
-            'type' => 'int',
-            'min' => 0,
-            'max' => 100,
-            'default' => 20,
-        ],
         'color_temperature' => [
             'label' => 'Color Temperature',
-            'hint' => 'Yellow (-10) to red (10), default 0 for neutral',
+            'hint' => '',
             'type' => 'int',
             'min' => -10,
             'max' => 10,
