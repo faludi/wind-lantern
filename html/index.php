@@ -22,7 +22,7 @@ $fieldErrors = [];
 
 $settingsFields = lantern_settings_schema();
 
-$sliderFields = ['lantern_brightness', 'night_brightness', 'settings_update_interval', 'color_temperature'];
+$sliderFields = ['lantern_brightness', 'night_brightness', 'settings_update_interval', 'color_temperature', 'flicker_intensity'];
 
 $data = [];
 foreach ($settingsFields as $key => $field) {
@@ -496,6 +496,22 @@ textarea:focus {
     left: 50%;
     transform: translateX(-50%);
 }
+.settings-form .flicker-control {
+    display: grid;
+    gap: 4px;
+}
+.settings-form .flicker-labels {
+    display: flex;
+    justify-content: space-between;
+    position: relative;
+    color: #8b7a67;
+    font-size: 0.78rem;
+}
+.settings-form .flicker-labels span:nth-child(2) {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+}
 .settings-form input[type="range"] {
     width: 100%;
     margin: 0;
@@ -872,7 +888,7 @@ textarea:focus {
                                 </div>
                                 <?php continue; ?>
                             <?php endif; ?>
-                            <label for="<?= htmlspecialchars($key) ?>"><?= htmlspecialchars($field['label']) ?></label>
+                            <label for="<?= htmlspecialchars($key === 'flicker_intensity' ? $key . '_slider' : $key) ?>"><?= htmlspecialchars($field['label']) ?></label>
                             <?php if ($field['hint'] !== ''): ?>
                                 <div class="field-hint"><?= htmlspecialchars($field['hint']) ?></div>
                             <?php endif; ?>
@@ -908,6 +924,35 @@ textarea:focus {
                                             <span>Normal</span>
                                             <span>Red</span>
                                         </div>
+                                    </div>
+                                <?php elseif ($key === 'flicker_intensity'): ?>
+                                    <?php
+                                    $flickerValue = (float)$data[$key];
+                                    $flickerPosition = $flickerValue <= 1
+                                        ? (($flickerValue - 0.1) / 0.9) * 50
+                                        : 50 + (($flickerValue - 1) / 4) * 50;
+                                    ?>
+                                    <div class="flicker-control">
+                                        <input
+                                            id="<?= htmlspecialchars($key) ?>_slider"
+                                            type="range"
+                                            min="0"
+                                            max="100"
+                                            step="1"
+                                            value="<?= (int)round($flickerPosition) ?>"
+                                            data-flicker-slider
+                                            aria-label="<?= htmlspecialchars($field['label']) ?>">
+                                        <div class="flicker-labels" aria-hidden="true">
+                                            <span>Low</span>
+                                            <span>Normal</span>
+                                            <span>High</span>
+                                        </div>
+                                        <input
+                                            id="<?= htmlspecialchars($key) ?>"
+                                            name="<?= htmlspecialchars($key) ?>"
+                                            type="hidden"
+                                            data-default="<?= htmlspecialchars((string)$field['default'], ENT_QUOTES, 'UTF-8') ?>"
+                                            value="<?= htmlspecialchars((string)$data[$key]) ?>">
                                     </div>
                                 <?php else: ?>
                                 <div class="range-controls">
@@ -1045,11 +1090,31 @@ textarea:focus {
 </div>
 <div class="tatami-stripes"></div>
 <script>
+const flickerIntensityAtPosition = (position) => {
+    const intensity = position <= 50
+        ? 0.1 + (position / 50) * 0.9
+        : 1 + ((position - 50) / 50) * 4;
+    return Math.round(intensity * 10) / 10;
+};
+
+const flickerPositionForIntensity = (intensity) => intensity <= 1
+    ? ((intensity - 0.1) / 0.9) * 50
+    : 50 + ((intensity - 1) / 4) * 50;
+
 document.querySelectorAll('[data-checkin-timestamp]').forEach((el) => {
     const unixSeconds = Number(el.dataset.checkinTimestamp);
     if (!Number.isFinite(unixSeconds)) return;
     el.textContent = new Date(unixSeconds * 1000).toLocaleString(undefined, {
         year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+    });
+});
+
+document.querySelectorAll('[data-flicker-slider]').forEach((slider) => {
+    const valueField = document.getElementById('flicker_intensity');
+    if (!valueField) return;
+
+    slider.addEventListener('input', () => {
+        valueField.value = flickerIntensityAtPosition(Number(slider.value)).toFixed(1);
     });
 });
 
@@ -1083,8 +1148,16 @@ document.querySelectorAll('.settings-form [data-reset-defaults]').forEach((butto
             if (slider) slider.value = field.value;
         });
 
+        const flickerSlider = form.querySelector('[data-flicker-slider]');
+        const flickerValue = form.querySelector('[name="flicker_intensity"]');
+        if (flickerSlider && flickerValue) {
+            flickerSlider.value = String(Math.round(flickerPositionForIntensity(Number(flickerValue.value))));
+        }
+
         const summary = resetFields.map((field) => {
-            const label = form.querySelector(`label[for="${field.id}"]`);
+            const label = field.id === 'flicker_intensity'
+                ? form.querySelector('label[for="flicker_intensity_slider"]')
+                : form.querySelector(`label[for="${field.id}"]`);
             return `${label ? label.textContent.trim() : field.name}: ${field.value}`;
         });
         const address = form.querySelector('[name="address"]');

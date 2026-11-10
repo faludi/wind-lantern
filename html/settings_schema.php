@@ -51,7 +51,7 @@ function lantern_settings_schema(): array {
         ],
         'flicker_intensity' => [
             'label' => 'Flicker Intensity',
-            'hint' => 'Sensitivity to wind, 0 to 5 multiplier, default 1',
+            'hint' => 'Sensitivity to wind, 0.1 to 5 multiplier, default 1',
             'type' => 'float',
             'min' => 0,
             'max' => 5,
