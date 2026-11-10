@@ -920,9 +920,9 @@ textarea:focus {
                                             value="<?= htmlspecialchars((string)$data[$key]) ?>"
                                             aria-label="<?= htmlspecialchars($field['label']) ?>">
                                         <div class="temperature-labels" aria-hidden="true">
-                                            <span>Yellow</span>
+                                            <span>Yellower</span>
                                             <span>Normal</span>
-                                            <span>Red</span>
+                                            <span>Redder</span>
                                         </div>
                                     </div>
                                 <?php elseif ($key === 'flicker_intensity'): ?>
