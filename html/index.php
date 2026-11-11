@@ -515,10 +515,32 @@ textarea:focus {
 .settings-form input[type="range"] {
     -webkit-appearance: none;
     appearance: none;
+    display: block;
     width: 100%;
     height: 32px;
     margin: 0;
     background: transparent;
+}
+.settings-form .default-range {
+    position: relative;
+    min-width: 0;
+}
+.settings-form .default-range-markers {
+    position: absolute;
+    inset: 0 10px;
+    pointer-events: none;
+}
+.settings-form .default-range-marker {
+    position: absolute;
+    z-index: 1;
+    top: 50%;
+    width: 3px;
+    height: 14px;
+    border-radius: 2px;
+    background: #5a4631;
+    box-shadow: 0 0 0 1px #f8f3e9;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
 }
 .settings-form input[type="range"]::-webkit-slider-runnable-track {
     height: 6px;
@@ -527,9 +549,10 @@ textarea:focus {
 }
 .settings-form input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
+    box-sizing: border-box;
     width: 20px;
     height: 20px;
-    margin-top: -9px;
+    margin-top: -7px;
     border: 2px solid #6e8a47;
     border-radius: 50%;
     background: #f8f3e9;
@@ -541,6 +564,7 @@ textarea:focus {
     background: #d8cdb9;
 }
 .settings-form input[type="range"]::-moz-range-thumb {
+    box-sizing: border-box;
     width: 20px;
     height: 20px;
     border: 2px solid #6e8a47;
@@ -943,9 +967,16 @@ textarea:focus {
                                 <?php
                                 $sliderMin = $field['ui_min'] ?? $field['min'];
                                 $sliderMax = $field['ui_max'] ?? $field['max'];
+                                $defaultValue = (float)$field['default'];
+                                $defaultPosition = $key === 'flicker_intensity'
+                                    ? ($defaultValue <= 1
+                                        ? (($defaultValue - 0.1) / 0.9) * 50
+                                        : 50 + (($defaultValue - 1) / 4) * 50)
+                                    : (($defaultValue - (float)$sliderMin) / ((float)$sliderMax - (float)$sliderMin)) * 100;
                                 ?>
                                 <?php if ($key === 'color_temperature'): ?>
                                     <div class="temperature-control">
+                                        <div class="default-range">
                                         <input
                                             id="<?= htmlspecialchars($key) ?>"
                                             name="<?= htmlspecialchars($key) ?>"
@@ -956,6 +987,8 @@ textarea:focus {
                                             data-default="<?= htmlspecialchars((string)$field['default'], ENT_QUOTES, 'UTF-8') ?>"
                                             value="<?= htmlspecialchars((string)$data[$key]) ?>"
                                             aria-label="<?= htmlspecialchars($field['label']) ?>">
+                                            <span class="default-range-markers"><span class="default-range-marker" style="left: <?= number_format($defaultPosition, 4, '.', '') ?>%" title="Default setting" aria-hidden="true"></span></span>
+                                        </div>
                                         <div class="temperature-labels" aria-hidden="true">
                                             <span>Yellower</span>
                                             <span>Normal</span>
@@ -970,6 +1003,7 @@ textarea:focus {
                                         : 50 + (($flickerValue - 1) / 4) * 50;
                                     ?>
                                     <div class="flicker-control">
+                                        <div class="default-range">
                                         <input
                                             id="<?= htmlspecialchars($key) ?>_slider"
                                             type="range"
@@ -979,6 +1013,8 @@ textarea:focus {
                                             value="<?= (int)round($flickerPosition) ?>"
                                             data-flicker-slider
                                             aria-label="<?= htmlspecialchars($field['label']) ?>">
+                                            <span class="default-range-markers"><span class="default-range-marker" style="left: <?= number_format($defaultPosition, 4, '.', '') ?>%" title="Default setting" aria-hidden="true"></span></span>
+                                        </div>
                                         <div class="flicker-labels" aria-hidden="true">
                                             <span>Low</span>
                                             <span>Normal</span>
@@ -993,6 +1029,7 @@ textarea:focus {
                                     </div>
                                 <?php else: ?>
                                 <div class="range-controls">
+                                    <div class="default-range">
                                     <input
                                         id="<?= htmlspecialchars($key) ?>_slider"
                                         data-slider-for="<?= htmlspecialchars($key) ?>"
@@ -1002,6 +1039,8 @@ textarea:focus {
                                         step="1"
                                         value="<?= htmlspecialchars((string)$data[$key]) ?>"
                                         aria-label="<?= htmlspecialchars($field['label']) ?> slider">
+                                        <span class="default-range-markers"><span class="default-range-marker" style="left: <?= number_format($defaultPosition, 4, '.', '') ?>%" title="Default setting" aria-hidden="true"></span></span>
+                                    </div>
                                     <input
                                         id="<?= htmlspecialchars($key) ?>"
                                         name="<?= htmlspecialchars($key) ?>"
