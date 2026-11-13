@@ -412,7 +412,7 @@ body {
 }
 
 /* Address textarea */
-textarea {
+.settings-form textarea {
     width: 100%;
     min-height: 120px;
     padding: 9px 10px;
@@ -422,13 +422,13 @@ textarea {
         repeating-linear-gradient(180deg, rgba(220,205,180,0.25) 0px, rgba(220,205,180,0.25) 1px, transparent 2px, transparent 4px);
     color: #4b3f33;
     border-radius: 10px;
-    border: 1px solid rgba(176,150,110,0.7);
+    border: 1px solid rgba(90,70,49,0.75);
     outline: none;
     resize: vertical;
     font-size: 0.95rem;
     line-height: 1.4;
 }
-textarea:focus {
+.settings-form textarea:focus {
     border-color: #7aa25f;
     box-shadow:
         0 0 0 1px rgba(112,149,83,0.4),
@@ -447,6 +447,11 @@ textarea:focus {
     font-size: 0.78rem;
     color: #8b7a67;
     margin: 2px 0 6px;
+}
+.settings-form .address-default-note {
+    margin: 16px 0 6px;
+    font-size: 0.9rem;
+    text-align: left;
 }
 .settings-form .field-error {
     font-size: 0.82rem;
@@ -541,6 +546,14 @@ textarea:focus {
     box-shadow: 0 0 0 1px #f8f3e9;
     transform: translate(-50%, -50%);
     pointer-events: none;
+}
+.settings-form .default-range-marker-inline {
+    position: relative;
+    top: auto;
+    display: inline-block;
+    margin-left: 4px;
+    vertical-align: middle;
+    transform: none;
 }
 .settings-form input[type="range"]::-webkit-slider-runnable-track {
     height: 6px;
@@ -955,6 +968,7 @@ textarea:focus {
                             <?php endif; ?>
                             <?php if ($key === 'address'): ?>
                                 <textarea id="address" name="address"><?= htmlspecialchars((string)$data['address']) ?></textarea>
+                                <div class="field-hint address-default-note">Default settings =<span class="default-range-marker default-range-marker-inline" aria-hidden="true"></span></div>
                             <?php elseif ($field['type'] === 'url'): ?>
                                 <input
                                     id="<?= htmlspecialchars($key) ?>"

@@ -11,7 +11,7 @@ function lantern_settings_schema(): array {
         ],
         'lantern_brightness' => [
             'label' => 'Lantern Brightness',
-            'hint' => 'Percent of full brightness, 0 to 100, default 100',
+            'hint' => 'Percent of full brightness',
             'type' => 'int',
             'min' => 0,
             'max' => 100,
@@ -19,7 +19,7 @@ function lantern_settings_schema(): array {
         ],
         'night_brightness' => [
             'label' => 'Night Brightness',
-            'hint' => 'Percent of full brightness at night, 0 to 100, default 20',
+            'hint' => 'Percent of full brightness at night',
             'type' => 'int',
             'min' => 0,
             'max' => 100,
@@ -43,7 +43,7 @@ function lantern_settings_schema(): array {
         ],
         'color_temperature' => [
             'label' => 'Color Temperature',
-            'hint' => 'Lantern hue, default Normal',
+            'hint' => 'Lantern hue',
             'type' => 'int',
             'min' => -10,
             'max' => 10,
@@ -51,7 +51,7 @@ function lantern_settings_schema(): array {
         ],
         'flicker_intensity' => [
             'label' => 'Flicker Intensity',
-            'hint' => 'Sensitivity to wind, default Normal',
+            'hint' => 'Sensitivity to wind',
             'type' => 'float',
             'min' => 0,
             'max' => 5,
@@ -60,7 +60,7 @@ function lantern_settings_schema(): array {
         ],
         'settings_update_interval' => [
             'label' => 'Settings Update Interval',
-            'hint' => 'Frequency of settings updates, 5 to 180 minutes, default 15',
+            'hint' => 'Frequency of settings updates, 5 to 180 minutes',
             'type' => 'int',
             'min' => 1,
             'max' => 10080,
