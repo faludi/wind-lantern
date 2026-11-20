@@ -35,6 +35,24 @@ assert_same(500, $admin['setting_values']['settings_update_interval'], 'Server i
 assert_same('https://example.test/new.php', $admin['setting_values']['settings_endpoint'], 'Admin endpoint update');
 assert_same([], $admin['field_errors'], 'Valid admin submission');
 
+$minimumTemperature = validate_lantern_settings_submission(
+    array_merge($post, ['color_temperature' => '-20']),
+    $fields,
+    $lantern,
+    true
+);
+assert_same(-20, $minimumTemperature['setting_values']['color_temperature'], 'Minimum color temperature');
+assert_same([], $minimumTemperature['field_errors'], 'Minimum color temperature validation');
+
+$maximumTemperature = validate_lantern_settings_submission(
+    array_merge($post, ['color_temperature' => '20']),
+    $fields,
+    $lantern,
+    true
+);
+assert_same(20, $maximumTemperature['setting_values']['color_temperature'], 'Maximum color temperature');
+assert_same([], $maximumTemperature['field_errors'], 'Maximum color temperature validation');
+
 $pdo = new PDO('sqlite::memory:');
 $pdo->exec('CREATE TABLE lanterns (
     id INTEGER PRIMARY KEY,
@@ -69,5 +87,9 @@ $result = validate_lantern_settings_submission($invalid, $fields, $lantern, true
 assert_same('Address cannot be empty.', $result['field_errors']['Address'], 'Address validation');
 assert_same('Lantern Brightness must be between 0 and 100.', $result['field_errors']['Lantern Brightness'], 'Brightness validation');
 assert_same('Settings Endpoint must be a valid HTTP or HTTPS URL.', $result['field_errors']['Settings Endpoint'], 'Endpoint validation');
+
+$invalid['color_temperature'] = '21';
+$result = validate_lantern_settings_submission($invalid, $fields, $lantern, true);
+assert_same('Color Temperature must be between -20 and 20.', $result['field_errors']['Color Temperature'], 'Color temperature validation');
 
 echo "settings_actions tests passed\n";

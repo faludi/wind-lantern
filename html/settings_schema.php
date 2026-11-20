@@ -23,7 +23,7 @@ function lantern_settings_schema(): array {
             'type' => 'int',
             'min' => 0,
             'max' => 100,
-            'default' => 20,
+            'default' => 10,
         ],
         'night_start' => [
             'label' => 'Night Start',
@@ -45,8 +45,8 @@ function lantern_settings_schema(): array {
             'label' => 'Color Temperature',
             'hint' => 'Lantern hue',
             'type' => 'int',
-            'min' => -10,
-            'max' => 10,
+            'min' => -20,
+            'max' => 20,
             'default' => 0,
         ],
         'flicker_intensity' => [

@@ -8,7 +8,7 @@ DEFAULT_SETTINGS = {
     "settings_endpoint": "https://shinyshape.com/windlantern/lantern_checkin.php",
     "settings_update_interval": 15,
     "lantern_brightness": 100,
-    "night_brightness": 20,
+    "night_brightness": 10,
     "night_start": 22,
     "night_end": 8,
     "color_temperature": 0,
@@ -31,7 +31,7 @@ def normalize_brightness(value, fallback=100):
 
 
 def normalize_color_temperature(value, fallback=0):
-    return _normalize_integer_range(value, -10, 10, fallback)
+    return _normalize_integer_range(value, -20, 20, fallback)
 
 
 def normalize_flicker_intensity(value, fallback=1):

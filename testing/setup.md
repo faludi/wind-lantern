@@ -7,6 +7,7 @@ The PHP application in `html/` stores users, lanterns, and their settings in MyS
 1. Create a MySQL database and database user with your hosting provider. Note the database hostname, database name, username, and password.
 2. Copy `wind_lantern_db_config.example.php` to `wind_lantern_db_config.php` one directory above the public `html/` directory, then enter the database values. Keep the completed file out of source control and outside the public web directory.
 3. Import `html/schema.sql` into the new database using the provider's database tools or a MySQL client.
+   For an existing installation, apply unapplied SQL migration files in `html/migrations/` in filename order. The constraint-reconciliation migration removes the stale `lanterns_chk_5` temperature check and restores the flicker-intensity check; confirm generated constraint names with `SHOW CREATE TABLE lanterns` if the schema was customized.
 4. Visit `/windlantern/admin.php` and create the first administrator account while the `users` table is empty. After setup, the page requires an administrator login.
 5. In the administration page, register each lantern's MAC address, initial address, owner username, and owner password. Use the device's station/Wi-Fi MAC address.
 6. Sign in to `/windlantern/index.php` to edit the lantern settings. The dashboard settings endpoint should be `https://shinyshape.com/windlantern/lantern_checkin.php` unless your deployment uses a different host.

@@ -14,16 +14,18 @@ CREATE TABLE lanterns (
     settings_endpoint VARCHAR(1024) NOT NULL DEFAULT 'https://shinyshape.com/windlantern/lantern_checkin.php',
     settings_update_interval SMALLINT UNSIGNED NOT NULL DEFAULT 15 CHECK (settings_update_interval BETWEEN 1 AND 10080),
     lantern_brightness TINYINT UNSIGNED NOT NULL DEFAULT 100 CHECK (lantern_brightness BETWEEN 0 AND 100),
-    night_brightness TINYINT UNSIGNED NOT NULL DEFAULT 20 CHECK (night_brightness BETWEEN 0 AND 100),
+    night_brightness TINYINT UNSIGNED NOT NULL DEFAULT 10 CHECK (night_brightness BETWEEN 0 AND 100),
     night_start TINYINT UNSIGNED NOT NULL DEFAULT 22 CHECK (night_start BETWEEN 0 AND 23),
     night_end TINYINT UNSIGNED NOT NULL DEFAULT 8 CHECK (night_end BETWEEN 0 AND 23),
-    color_temperature TINYINT NOT NULL DEFAULT 0 CHECK (color_temperature BETWEEN -10 AND 10),
-    flicker_intensity DECIMAL(4,2) NOT NULL DEFAULT 1.00 CHECK (flicker_intensity BETWEEN 0 AND 5),
+    color_temperature TINYINT NOT NULL DEFAULT 0,
+    CONSTRAINT chk_lanterns_color_temperature CHECK (color_temperature BETWEEN -20 AND 20),
+    flicker_intensity DECIMAL(4,2) NOT NULL DEFAULT 1.00,
     last_checkin TIMESTAMP NULL DEFAULT NULL,
     firmware_version VARCHAR(32) NULL DEFAULT NULL,
     update_firmware TINYINT(1) NOT NULL DEFAULT 0,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT lanterns_user_fk FOREIGN KEY (user_id) REFERENCES users(id)
+    CONSTRAINT lanterns_user_fk FOREIGN KEY (user_id) REFERENCES users(id),
+    CONSTRAINT chk_lanterns_flicker_intensity CHECK (flicker_intensity BETWEEN 0 AND 5)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

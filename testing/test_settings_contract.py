@@ -54,7 +54,7 @@ class SettingsContractTests(unittest.TestCase):
                 continue
 
             constraint = re.search(
-                rf"^\s*{re.escape(key)}\s+.*?CHECK\s*\(\s*{re.escape(key)}\s+BETWEEN\s+(-?\d+)\s+AND\s+(-?\d+)\s*\)",
+                rf"CHECK\s*\(\s*{re.escape(key)}\s+BETWEEN\s+(-?\d+)\s+AND\s+(-?\d+)\s*\)",
                 schema_sql,
                 re.IGNORECASE | re.MULTILINE,
             )
@@ -65,6 +65,25 @@ class SettingsContractTests(unittest.TestCase):
             normalized_max = normalize_settings({key: field["max"] + 1})[key]
             self.assertEqual(normalized_min, field["min"], key)
             self.assertEqual(normalized_max, field["max"], key)
+
+    def test_night_brightness_default_and_color_temperature_range(self):
+        schema_sql = (PROJECT_ROOT / "html" / "schema.sql").read_text()
+        config = json.loads((PROJECT_ROOT / "config.json").read_text())
+        night_brightness_column = re.search(
+            r"^\s*night_brightness\s+[^,\n]*\bDEFAULT\s+(\d+)",
+            schema_sql,
+            re.IGNORECASE | re.MULTILINE,
+        )
+
+        self.assertEqual(DEFAULT_SETTINGS["night_brightness"], 10)
+        self.assertEqual(config["night_brightness"], 10)
+        self.assertEqual(self.schema["night_brightness"]["default"], 10)
+        self.assertIsNotNone(night_brightness_column)
+        self.assertEqual(int(night_brightness_column.group(1)), 10)
+        self.assertEqual(
+            (self.schema["color_temperature"]["min"], self.schema["color_temperature"]["max"]),
+            (-20, 20),
+        )
 
     def test_interval_ui_bounds_remain_narrower_than_server_bounds(self):
         interval = self.schema["settings_update_interval"]
